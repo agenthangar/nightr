@@ -4,6 +4,7 @@ import NightrController
 #if os(macOS)
 import NightrPlatform
 import Darwin
+import MachO
 #else
 import Glibc
 #endif
@@ -34,12 +35,21 @@ import Glibc
         do { try await run(Array(CommandLine.arguments.dropFirst())) }
         catch { FileHandle.standardError.write(Data("nightr: \(error.localizedDescription)\n".utf8)); exit(1) }
     }
-    static var executable: URL { URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.resolvingSymlinksInPath() }
+    static var executable: URL {
+#if os(macOS)
+        var count: UInt32 = 4096
+        var bytes = [CChar](repeating: 0, count: Int(count))
+        if _NSGetExecutablePath(&bytes, &count) == 0 {
+            return URL(fileURLWithPath: String(cString: bytes)).standardizedFileURL.resolvingSymlinksInPath()
+        }
+#endif
+        return URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.resolvingSymlinksInPath()
+    }
     static var contents: URL { executable.deletingLastPathComponent().deletingLastPathComponent() }
     static var resources: URL { contents.appendingPathComponent("Resources") }
     static func run(_ arguments: [String]) async throws {
         if arguments.contains("--help") || arguments == ["-h"] { print(usage); return }
-        if arguments == ["--version"] { print(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0-dev"); return }
+        if arguments == ["--version"] { print(AppBundleVersion.read(infoPlist: contents.appendingPathComponent("Info.plist")) ?? "0.1.0-dev"); return }
         var args = arguments
         let command = args.first.map { $0.hasPrefix("-") ? "foreground" : $0 } ?? "foreground"
         if command != "foreground" { args.removeFirst() }
@@ -48,8 +58,11 @@ import Glibc
             guard args.isEmpty || args == ["--json"] else { throw SettingsError.invalid("usage: nightr status [--json]") }
             do { try printResponse(ControllerClient().request(ControllerRequest(command: .status)), json: args == ["--json"]) }
             catch {
-                if args == ["--json"] { print("{\"running\":false,\"protocol_version\":1}") }
-                else { print("Nightr is not running. Run `nightr start` to enable protection.") }
+                let message = "Nightr status unavailable: \(error.localizedDescription)"
+                if args == ["--json"] {
+                    let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+                    print(String(decoding: try encoder.encode(ControllerResponse(error: message)), as: UTF8.self))
+                } else { print(message) }
             }
         case "stop":
             guard args.isEmpty else { throw SettingsError.invalid("usage: nightr stop") }

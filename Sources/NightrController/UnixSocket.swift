@@ -97,10 +97,10 @@ public final class ControllerClient: Sendable {
     public func request(_ request: ControllerRequest) throws -> ControllerResponse {
         var info = stat()
         guard lstat(runtimeDirectory.path, &info) == 0, info.st_uid == getuid(), (info.st_mode & S_IFMT) == S_IFDIR,
-              (info.st_mode & 0o777) == 0o700 else { throw IPCError.invalid("Nightr is not running (private runtime unavailable)") }
+              (info.st_mode & 0o777) == 0o700 else { throw IPCError.invalid("private controller runtime is unavailable or unsafe") }
         let path = runtimeDirectory.appendingPathComponent("controller.sock").path
         guard lstat(path, &info) == 0, info.st_uid == getuid(), (info.st_mode & S_IFMT) == S_IFSOCK,
-              (info.st_mode & 0o777) == 0o600 else { throw IPCError.invalid("Nightr is not running (private socket unavailable)") }
+              (info.st_mode & 0o777) == 0o600 else { throw IPCError.invalid("private controller socket is unavailable or unsafe") }
         let fd = makeSocket(); guard fd >= 0 else { throw systemError("socket") }; defer { close(fd) }; configure(fd)
         var addr = try address(path)
         let result = withUnsafePointer(to: &addr) { ptr in ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }

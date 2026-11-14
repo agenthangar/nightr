@@ -253,6 +253,46 @@ final class CoreTests: XCTestCase {
         _ = engine.handle(.tick(MachineSample(onBattery: false, batteryPercent: 10)), now: now.addingTimeInterval(1))
         XCTAssertNil(engine.state.pause); XCTAssertTrue(engine.holding)
     }
+    func testStatusJSONUsesVersionedEnvelopeForAvailableAndUnavailableStates() throws {
+        let failure = ControllerResponse(error: "Nightr status unavailable: private controller socket is unavailable or unsafe")
+        let failureData = try JSONEncoder().encode(failure)
+        let failureJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: failureData) as? [String: Any])
+        XCTAssertEqual(failureJSON["version"] as? Int, 1)
+        XCTAssertNil(failureJSON["status"])
+        XCTAssertNotNil(failureJSON["error"] as? String)
+        XCTAssertNil(failureJSON["running"]); XCTAssertNil(failureJSON["protocol_version"])
+        let decoded = try JSONDecoder().decode(ControllerResponse.self, from: failureData)
+        XCTAssertNil(decoded.status); XCTAssertEqual(decoded.error, failure.error)
+        let off = ControllerResponse(status: ControllerStatus(engine: MonitorEngine()))
+        let offJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(off)) as? [String: Any])
+        XCTAssertEqual(offJSON["version"] as? Int, 1)
+        let status = try XCTUnwrap(offJSON["status"] as? [String: Any])
+        XCTAssertEqual(status["holding"] as? Bool, false)
+        XCTAssertNil(offJSON["holding"]); XCTAssertNil(offJSON["error"])
+    }
+    func testBundleVersionReadsBoundedRegularMetadataAndExactVersion() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("nightr-version-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let plist = directory.appendingPathComponent("Info.plist")
+        for version in ["0.1.777", "0.1.999999999999999999999999999999"] {
+            try PropertyListSerialization.data(fromPropertyList: ["CFBundleShortVersionString": version], format: .xml, options: 0).write(to: plist)
+            XCTAssertEqual(AppBundleVersion.read(infoPlist: plist), version)
+        }
+        let link = directory.appendingPathComponent("linked.plist")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: plist)
+        XCTAssertNil(AppBundleVersion.read(infoPlist: link))
+        let invalidValues: [Any] = ["0.1", "0.1.7\n", "future", true]
+        for invalid in invalidValues {
+            try PropertyListSerialization.data(fromPropertyList: ["CFBundleShortVersionString": invalid], format: .binary, options: 0).write(to: plist)
+            XCTAssertNil(AppBundleVersion.read(infoPlist: plist))
+        }
+        try Data(repeating: 32, count: AppBundleVersion.maximumInfoBytes + 1).write(to: plist)
+        XCTAssertNil(AppBundleVersion.read(infoPlist: plist))
+        try Data("not a plist".utf8).write(to: plist)
+        XCTAssertNil(AppBundleVersion.read(infoPlist: plist))
+        XCTAssertNil(AppBundleVersion.read(infoPlist: directory.appendingPathComponent("missing")))
+    }
     func testFrameLimitsAndProtocolRoundTrip() throws {
         for length in [0, 65_537, UInt32.max] {
             var size = UInt32(length).bigEndian

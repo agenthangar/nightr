@@ -22,6 +22,19 @@ Off intent. Normal wake, path changes and login cannot override an explicit Stop
 Status is read-only and does not open setup, a picker or an authorization prompt.
 Conflicting run settings are rejected while a monitor is already enabled.
 
+JSON uses a versioned controller-response envelope. A successful reply has
+`version: 1` and a `status` object; the hold is `status.holding` and enabled intent
+is `status.state.desiredEnabled`. An Off controller still returns that object.
+If status cannot be read, `status` is absent and `error` explains the failure:
+
+```json
+{"version":1,"error":"Nightr status unavailable: private controller socket is unavailable or unsafe"}
+```
+
+Treat an error or missing status as unavailable. It does not prove that persisted
+intent is Off or that no process exists. Do not expect a top-level `holding`
+field or infer protection from process availability alone.
+
 Start needs the signed power helper to be ready. A requested hold can fail;
 status reports setup, ownership, safety and recovery errors instead of treating
 intent alone as successful protection. Nightr never unlocks the Mac or forces
