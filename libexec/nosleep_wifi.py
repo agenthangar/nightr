@@ -118,7 +118,9 @@ def bundled_observe(contents, authorize=False):
     runner = Runner(12)
     try:
         if authorize:
-            runner.run(['/usr/bin/open', '-n', str(contents.parent), '--args', '--enable-discovery'])
+            # Reuse the canonical app through the CLI's strict LaunchServices route.
+            # This opens Connectivity only; permission still needs its explicit UI control.
+            runner.run([str(contents / 'MacOS/nightr-native'), 'hotspot', 'setup'])
         data = json.loads(runner.run([str(contents / 'MacOS/NightrNetworkWorker'), 'scan']))
         if not isinstance(data, dict):
             raise ValueError('invalid network observation')

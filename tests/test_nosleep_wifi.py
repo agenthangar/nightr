@@ -165,4 +165,7 @@ def test_bundled_discovery_uses_prebuilt_worker(wifi, monkeypatch, tmp_path, mod
         if data["state"] == "ok":
             assert data["current"] == " exact "
     assert calls[-1] == "finished"
+    if mode == "authorize":
+        assert calls[0] == [str(contents / 'MacOS/nightr-native'), 'hotspot', 'setup']
+        assert not any("--enable-discovery" in call or "-n" in call for call in calls if isinstance(call, list))
     assert not any("xcrun" in str(call) for call in calls)

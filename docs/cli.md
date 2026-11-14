@@ -19,6 +19,12 @@ nightr status --json            # versioned JSON; never starts the controller
 Foreground Ctrl-C stops shared protection, including when another app or CLI
 started it. The menu bar app's Stop and Stop and Quit actions persist the same
 Off intent. Normal wake, path changes and login cannot override an explicit Stop.
+The foreground view refreshes observed status without changing the controller.
+Interactive terminals update in place; redirected output and `NO_COLOR` use plain
+snapshots only when visible state changes, including unavailable and recovered
+status. Ctrl-C and termination stop the current controller even after an update
+replaces it. A controller handoff has bounded retries; a failed durable Stop is
+reported as an error so it cannot be mistaken for confirmed Off.
 Status is read-only and does not open setup, a picker or an authorization prompt.
 Conflicting run settings are rejected while a monitor is already enabled.
 
@@ -46,6 +52,7 @@ immediate system sleep.
 nightr setup                   # open native setup/settings
 nightr setup --check           # report helper readiness without installing it
 nightr setup --cli-only        # explicit helper authorization without login setup
+nightr setup --direct-updates  # claim direct updates for an eligible manual PKG install
 nightr config                 # staged terminal editor: review, save or cancel
 nightr config --show           # display saved defaults without writing
 nightr config --edit           # edit JSON with VISUAL/EDITOR
@@ -59,6 +66,19 @@ setup registers the shared power helper without adding a login agent or starting
 a monitor. Desktop setup manages its supported login services. Authorization may
 remain pending in System Settings; a failed or incomplete setup needs attention
 before protection can start.
+
+For a manually installed signed package that has no recorded update owner,
+`nightr setup --direct-updates` explicitly requests direct-update ownership.
+It verifies the canonical installation and package receipt, and refuses an
+existing Homebrew owner. This action does not install a helper, register login,
+open the app or start protection. Ordinary update checks never claim ownership.
+
+Opening setup or hotspot settings reuses the canonical app and its existing
+Settings draft. A fresh Settings launch only presents the app; it does not start
+protection. A headless controller can show its menu without restarting.
+If the app does not acknowledge the selected tab within three seconds, the
+command reports a failure so you can retry or open the app manually.
+Location permission remains an explicit control in the network chooser.
 
 Config edits everyday preferences. Defaults remain in
 `${XDG_CONFIG_HOME:-~/.config}/nosleep/config.json`; existing configuration keys

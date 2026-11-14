@@ -27,7 +27,11 @@ public final class RuntimeOwnership: @unchecked Sendable {
         guard lockFD >= 0 else { throw systemError("open controller lock") }
         guard fstat(lockFD, &info) == 0, info.st_uid == getuid(), (info.st_mode & S_IFMT) == S_IFREG,
               info.st_nlink == 1, (info.st_mode & 0o777) == 0o600 else { close(lockFD); lockFD = -1; throw IPCError.invalid("unsafe controller lock") }
-        guard advisoryLock(lockFD, LOCK_EX | LOCK_NB) == 0 else { close(lockFD); lockFD = -1; throw IPCError.invalid("another Nightr controller already owns this user session") }
+        guard advisoryLock(lockFD, LOCK_EX | LOCK_NB) == 0 else {
+            let code = errno; close(lockFD); lockFD = -1
+            if code == EWOULDBLOCK || code == EAGAIN { throw RuntimeOwnershipBusyError() }
+            throw IPCError.invalid("cannot acquire controller ownership lock")
+        }
     }
     deinit { if lockFD >= 0 { _ = advisoryLock(lockFD, LOCK_UN); close(lockFD) } }
 }
@@ -96,20 +100,39 @@ public final class ControllerClient: Sendable {
     public init(runtimeDirectory: URL = NightrPaths.runtime) { self.runtimeDirectory = runtimeDirectory }
     public func request(_ request: ControllerRequest) throws -> ControllerResponse {
         var info = stat()
-        guard lstat(runtimeDirectory.path, &info) == 0, info.st_uid == getuid(), (info.st_mode & S_IFMT) == S_IFDIR,
+        if lstat(runtimeDirectory.path, &info) != 0 {
+            if errno == ENOENT { throw ControllerUnavailableError(message: "private controller runtime is unavailable or unsafe") }
+            throw IPCError.invalid("private controller runtime is unavailable or unsafe")
+        }
+        guard info.st_uid == getuid(), (info.st_mode & S_IFMT) == S_IFDIR,
               (info.st_mode & 0o777) == 0o700 else { throw IPCError.invalid("private controller runtime is unavailable or unsafe") }
         let path = runtimeDirectory.appendingPathComponent("controller.sock").path
-        guard lstat(path, &info) == 0, info.st_uid == getuid(), (info.st_mode & S_IFMT) == S_IFSOCK,
+        if lstat(path, &info) != 0 {
+            if errno == ENOENT { throw ControllerUnavailableError(message: "private controller socket is unavailable or unsafe") }
+            throw IPCError.invalid("private controller socket is unavailable or unsafe")
+        }
+        guard info.st_uid == getuid(), (info.st_mode & S_IFMT) == S_IFSOCK,
               (info.st_mode & 0o777) == 0o600 else { throw IPCError.invalid("private controller socket is unavailable or unsafe") }
         let fd = makeSocket(); guard fd >= 0 else { throw systemError("socket") }; defer { close(fd) }; configure(fd)
         var addr = try address(path)
         let result = withUnsafePointer(to: &addr) { ptr in ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
-        guard result == 0 else { throw systemError("connect controller") }; try verifyPeer(fd)
-        try sendAll(fd, data: FrameCodec.encode(request))
-        let count = try FrameCodec.payloadLength(receiveExactly(fd, count: 4))
-        let response = try JSONDecoder().decode(ControllerResponse.self, from: receiveExactly(fd, count: count))
-        guard response.version == ControllerRequest.version else { throw IPCError.invalid("incompatible controller protocol; update Nightr") }
-        return response
+        if result != 0 {
+            if errno == ECONNREFUSED || errno == ENOENT { throw ControllerUnavailableError(message: systemError("connect controller").localizedDescription) }
+            throw systemError("connect controller")
+        }
+        try verifyPeer(fd)
+        let frame = try FrameCodec.encode(request)
+        do {
+            try sendAll(fd, data: frame)
+            let count = try FrameCodec.payloadLength(receiveExactly(fd, count: 4))
+            let response = try JSONDecoder().decode(ControllerResponse.self, from: receiveExactly(fd, count: count))
+            guard response.version == ControllerRequest.version else { throw IPCError.invalid("incompatible controller protocol; update Nightr") }
+            return response
+        } catch {
+            // After sending starts, a lost/invalid reply cannot prove Start failed.
+            if request.command == .start { throw ControllerStartUncertainError(message: error.localizedDescription) }
+            throw error
+        }
     }
 }
 

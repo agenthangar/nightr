@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "verified": true,
+  "tap": "agenthangar/tap",
+  "cask": "nightr",
+  "normalizedTemplateSHA256": "e79a2b395882fea650284d15f76dbcd118879573f6bfd98ce8f2c84d4da70979",
+  "boundary": "The exact reviewed PKG-only template is checked immediately before the same resolved Homebrew executable runs with auto-update and API installation disabled. Concurrent changes by the account managing Homebrew or the tap are outside this preflight guarantee. The actual tap and release artifact must exist and match the release manifest before installation."
+}

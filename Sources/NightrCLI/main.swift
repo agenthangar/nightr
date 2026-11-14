@@ -3,6 +3,7 @@ import NightrCore
 import NightrController
 #if os(macOS)
 import NightrPlatform
+import AppKit
 import Darwin
 import MachO
 #else
@@ -16,7 +17,7 @@ import Glibc
            nightr start [options]
            nightr stop
            nightr status [--json]
-           nightr setup [--check|--cli-only]
+           nightr setup [--check|--cli-only|--direct-updates]
            nightr config [--show|--edit]
            nightr update [--check]
 
@@ -66,11 +67,9 @@ import Glibc
             }
         case "stop":
             guard args.isEmpty else { throw SettingsError.invalid("usage: nightr stop") }
-            let client = ControllerClient()
-            do { try printResponse(client.request(ControllerRequest(command: .stop))) }
-            catch {
-                try OfflineController.stop(); print("Nightr Off · stopped")
-            }
+            if let status = try await StopRecovery.stop() {
+                try printResponse(ControllerResponse(status: status))
+            } else { print("Nightr Off · stopped") }
         case "start", "foreground":
             let settings = try CLIOptions.applying(args, to: SettingsStore().load())
 #if os(macOS)
@@ -92,19 +91,21 @@ import Glibc
             }
             try bundledPython(script: "nosleep_config.py", args: ["config"] + args)
         case "setup":
-            guard args.isEmpty || args == ["--check"] || args == ["--cli-only"] else { throw SettingsError.invalid("usage: nightr setup [--check|--cli-only]") }
+            guard args.isEmpty || args == ["--check"] || args == ["--cli-only"] || args == ["--direct-updates"] else { throw SettingsError.invalid("usage: nightr setup [--check|--cli-only|--direct-updates]") }
 #if os(macOS)
             if args == ["--check"] {
                 let sample = await MacControllerPlatform().sample()
                 print(sample.setupReady ? "Nightr setup is ready." : "Nightr setup needs attention. Run `nightr setup` to authorize the power helper.")
                 if !sample.setupReady { exit(1) }
-            } else { try launchApp(arguments: args == ["--cli-only"] ? ["--setup-helper-only"] : ["--setup"], wait: args == ["--cli-only"]) }
+            } else if args == ["--direct-updates"] { try bundledPython(script: "nightr_install.py", args: ["adopt-direct"]) }
+            else if args == ["--cli-only"] { try launchApp(arguments: ["--setup-helper-only"], wait: true) }
+            else { try await openSettings(.general) }
 #else
             throw IPCError.invalid("setup is available on macOS 13 or later")
 #endif
         case "hotspot":
 #if os(macOS)
-            if args == ["setup"] { try launchApp(arguments: ["--hotspot-setup"]) }
+            if args == ["setup"] { try await openSettings(.connectivity) }
             else if args.count == 3 && args[0] == "setup" && args[1] == "--ssid" {
                 try saveHotspotPassword(ssid: args[2])
             } else { throw SettingsError.invalid("usage: nightr hotspot setup [--ssid WIFI-NAME]") }
@@ -139,13 +140,7 @@ import Glibc
         if let error = response.error { throw IPCError.invalid(error) }
         if json { let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; print(String(decoding: try encoder.encode(response), as: UTF8.self)); return }
         guard let status = response.status else { throw IPCError.invalid("controller returned no status") }
-        let label = status.holding ? "On" : status.state.desiredEnabled ? "Paused" : "Off"
-        print("Nightr \(label)" + (status.state.pause.map { " · \($0.rawValue)" } ?? ""))
-        print("Internet: \(status.state.internet.rawValue)")
-        if let outage = status.state.outage {
-            print("Hotspot: \(outage.consumed) of \(outage.capturedLimit) total attempts used · " + (status.verificationEligible ? "still checking internet" : "checks paused"))
-        }
-        if let message = status.message { print(message) }
+        print(ForegroundStatus.lines(status).joined(separator: "\n"))
     }
     static func bundledPython(script: String, args: [String]) throws {
         let python = resources.appendingPathComponent("runtime/bin/python3")
@@ -175,6 +170,18 @@ import Glibc
         try KeychainCredentials().write(ssid: ssid, password: password)
         print("Hotspot password saved in Keychain.")
     }
+    @MainActor static func openSettings(_ route: GUISettingsRoute) async throws {
+        let app = URL(fileURLWithPath: "/Applications/Nightr.app", isDirectory: true)
+        guard FileManager.default.isExecutableFile(atPath: app.appendingPathComponent("Contents/MacOS/NightrApp").path) else {
+            throw IPCError.invalid("Nightr app is missing; repair the canonical installation")
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.arguments = GUIStartupMode.settingsArguments
+        configuration.createsNewApplicationInstance = false
+        configuration.allowsRunningApplicationSubstitution = false
+        let running = try await NSWorkspace.shared.openApplication(at: app, configuration: configuration)
+        try GUISettingsAcknowledgement.wait(route: route, targetPID: running.processIdentifier)
+    }
     static func launchApp(arguments: [String], wait: Bool = false) throws {
         let app = executable.deletingLastPathComponent().appendingPathComponent("NightrApp")
         guard FileManager.default.isExecutableFile(atPath: app.path) else { throw IPCError.invalid("Nightr app is missing; repair the installation") }
@@ -196,31 +203,131 @@ import Glibc
         throw IPCError.invalid("controller did not become ready; open Nightr and run setup")
     }
     static func foreground(settings: Settings) async throws {
-        let service: ControllerService?
-        if (try? ControllerClient().request(ControllerRequest(command: .status))) != nil { service = nil }
-        else {
-            let owner = try ControllerService(platform: MacControllerPlatform())
-            try await owner.start(); service = owner
+        // Capture termination before acquiring ownership or sending Start. The stream
+        // buffers an early signal until setup reaches its cleanup path.
+        let stopSignal = ForegroundStopSignal()
+        let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
+        let terminate = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
+        interrupt.setEventHandler { stopSignal.request() }
+        terminate.setEventHandler { stopSignal.request() }
+        let oldInterrupt = signal(SIGINT, SIG_IGN)
+        let oldTerminate = signal(SIGTERM, SIG_IGN)
+        interrupt.resume(); terminate.resume()
+        defer {
+            interrupt.cancel(); terminate.cancel(); stopSignal.finish()
+            signal(SIGINT, oldInterrupt); signal(SIGTERM, oldTerminate)
         }
-        do { try printResponse(ControllerClient().request(ControllerRequest(command: .start, settings: settings))) }
-        catch { await service?.shutdown(preserveIntent: true); throw error }
-        let events: MacSystemEvents?
-        if let service {
-            events = await MainActor.run { MacSystemEvents { event in Task { await service.send(event) } } }
-        } else { events = nil }
-        print("Ctrl-C stops protection.")
-        signal(SIGINT, SIG_IGN); signal(SIGTERM, SIG_IGN)
-        let stream = AsyncStream<Void> { continuation in
-            let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
-            let terminate = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
-            interrupt.setEventHandler { continuation.yield(()) }; terminate.setEventHandler { continuation.yield(()) }
-            interrupt.resume(); terminate.resume()
-            continuation.onTermination = { _ in interrupt.cancel(); terminate.cancel() }
+        var service: ControllerService?
+        var events: MacSystemEvents?
+        var refresh: Task<Void, Never>?
+        var stopAttempted = false
+        let isTTY = isatty(STDOUT_FILENO) == 1
+        let noColor = ProcessInfo.processInfo.environment["NO_COLOR"] != nil
+        var initialOutput = ForegroundStatusOutput(isTTY: isTTY, noColor: noColor)
+        // The cursor can only be hidden by a refresh; restoring it is harmless on
+        // every failure path and never emits ANSI to redirected or NO_COLOR output.
+        defer { if isTTY && !noColor { FileHandle.standardOutput.write(Data("\u{1B}[?25h".utf8)) } }
+        do {
+            if !stopSignal.requested {
+                do {
+                    let response = try ControllerClient().request(.init(command: .status))
+                    if let error = response.error { throw IPCError.invalid(error) }
+                } catch is ControllerUnavailableError {
+                    if !stopSignal.requested {
+                        let owner = try ControllerService(platform: MacControllerPlatform())
+                        service = owner
+                        try await owner.start()
+                    }
+                }
+            }
+            if let response = try stopSignal.startIfPending({
+                try ControllerClient().request(.init(command: .start, settings: settings))
+            }) {
+                if let error = response.error { throw IPCError.invalid(error) }
+                guard response.status != nil else { throw IPCError.invalid("controller returned no status") }
+                if let output = initialOutput.render(ForegroundStatus.snapshot(response)) {
+                    FileHandle.standardOutput.write(Data(output.utf8))
+                }
+                if let service {
+                    events = await MainActor.run { MacSystemEvents { event in Task { await service.send(event) } } }
+                }
+                if !initialOutput.interactive { print("Ctrl-C stops protection.") }
+                let output = initialOutput
+                refresh = Task {
+                    var renderer = output
+                    while !Task.isCancelled {
+                        do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
+                        guard !Task.isCancelled else { return }
+                        let snapshot: String
+                        do { snapshot = ForegroundStatus.snapshot(try ControllerClient().request(.init(command: .status))) }
+                        catch { snapshot = "Nightr status unavailable: \(error.localizedDescription)" }
+                        guard !Task.isCancelled else { return }
+                        if let text = renderer.render(snapshot) { FileHandle.standardOutput.write(Data(text.utf8)) }
+                    }
+                }
+                for await _ in stopSignal.events { break }
+            }
+            refresh?.cancel(); await refresh?.value; refresh = nil
+            // An update may have replaced our owner. Stop the current endpoint,
+            // then release only our obsolete service without rewriting its intent.
+            stopAttempted = true
+            let stopped = try await StopRecovery.stop()
+            await service?.shutdown(preserveIntent: true)
+            withExtendedLifetime(events) {}
+            if let stopped { try printResponse(.init(status: stopped)) }
+            else { print("Nightr Off · stopped") }
+        } catch {
+            refresh?.cancel(); await refresh?.value
+            // Cleanup is independent from authoritative Stop and must run even if
+            // the new endpoint rejects Stop or the durable journal cannot be saved.
+            var failure = error
+            if stopSignal.requiresStopOnFailure && !stopAttempted {
+                do { _ = try await StopRecovery.stop() } catch { failure = error }
+            }
+            await service?.shutdown(preserveIntent: true)
+            withExtendedLifetime(events) {}
+            throw failure
         }
-        for await _ in stream { break }
-        withExtendedLifetime(events) {}
-        if let service { await service.shutdown() }
-        else { _ = try ControllerClient().request(ControllerRequest(command: .stop)) }
     }
 #endif
 }
+
+#if os(macOS)
+/// DNC delivers on the main run loop, which an async command-line process must
+/// explicitly pump while waiting. The observer exists before the first post.
+@MainActor private final class GUISettingsAcknowledgement: NSObject {
+    private let center = DistributedNotificationCenter.default()
+    private let target: String
+    private var delivery: GUISettingsDelivery
+    private init(route: GUISettingsRoute, targetPID: Int32) {
+        target = String(targetPID)
+        delivery = GUISettingsDelivery(request: GUISettingsRequest(route: route), now: ProcessInfo.processInfo.systemUptime)
+        super.init()
+        center.addObserver(self, selector: #selector(receive(_:)), name: Notification.Name(GUISettingsRequest.acknowledgementName),
+                           object: target, suspensionBehavior: .deliverImmediately)
+    }
+    @objc private func receive(_ notification: Notification) {
+        guard notification.object as? String == target,
+              let response = GUISettingsRequest(userInfo: notification.userInfo) else { return }
+        delivery.acknowledge(response)
+    }
+    private func run() throws {
+        defer { center.removeObserver(self) }
+        while true {
+            switch delivery.next(now: ProcessInfo.processInfo.systemUptime) {
+            case .acknowledged: return
+            case .expired: throw IPCError.invalid("Nightr did not acknowledge Settings; try again or open the app manually")
+            case .post:
+                center.postNotificationName(Notification.Name(GUISettingsRequest.requestName), object: target,
+                                            userInfo: delivery.request.userInfo, options: [.deliverImmediately])
+            case .wait: break
+            }
+            // The default mode is a common run-loop mode used by DNC delivery.
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+    }
+    static func wait(route: GUISettingsRoute, targetPID: Int32) throws {
+        try GUISettingsAcknowledgement(route: route, targetPID: targetPID).run()
+    }
+}
+#endif

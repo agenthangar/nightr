@@ -55,9 +55,12 @@ final class RootStore {
         if fd < 0 && errno == ENOENT { return nil }
         try require(fd >= 0); defer { close(fd) }
         try metadata(fd, uid: 0, mode: 0o600)
-        return try JSONDecoder().decode(InstallMarker.self, from: readBounded(fd))
+        let marker = try JSONDecoder().decode(InstallMarker.self, from: readBounded(fd))
+        try InstallPolicy.validateMarker(marker)
+        return marker
     }
     func save(_ marker: InstallMarker, replacing generation: UUID?) throws {
+        try InstallPolicy.validateMarker(marker)
         let existing = try load()
         try require(existing?.generation == generation)
         let temporary = ".install-" + UUID().uuidString
@@ -80,13 +83,21 @@ func processInfo(_ pid: Int32) throws -> proc_bsdinfo {
     try require(proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &result, Int32(MemoryLayout<proc_bsdinfo>.size)) == Int32(MemoryLayout<proc_bsdinfo>.size))
     try require(result.pbi_pid == UInt32(pid)); return result
 }
+func bootIdentifier() throws -> String {
+    var size = 0
+    try require(sysctlbyname("kern.bootsessionuuid", nil, &size, nil, 0) == 0 && size > 0 && size <= 128)
+    var bytes = [CChar](repeating: 0, count: size)
+    try require(sysctlbyname("kern.bootsessionuuid", &bytes, &size, nil, 0) == 0)
+    guard let boot = UUID(uuidString: String(cString: bytes)) else { throw InstallGuardError.systemFailure }
+    return boot.uuidString
+}
 func lockOwner(_ fd: Int32) throws -> InstallOwner? {
     var query = Darwin.flock(l_start: 0, l_len: 0, l_pid: 0, l_type: Int16(F_WRLCK), l_whence: Int16(SEEK_SET))
     try require(fcntl(fd, F_GETLK, &query) == 0)
     if query.l_type == Int16(F_UNLCK) { return nil }
     try require(query.l_type == Int16(F_WRLCK) && query.l_start == 0 && query.l_len == 0 && query.l_pid > 0)
     let info = try processInfo(query.l_pid)
-    return InstallOwner(pid: query.l_pid, uid: info.pbi_uid)
+    return InstallOwner(pid: query.l_pid, uid: info.pbi_uid, processStartSeconds: info.pbi_start_tvsec, processStartMicroseconds: info.pbi_start_tvusec, bootID: try bootIdentifier())
 }
 func exclusiveRecordLock(_ fd: Int32) throws {
     var query = Darwin.flock(l_start: 0, l_len: 0, l_pid: 0, l_type: Int16(F_WRLCK), l_whence: Int16(SEEK_SET))
@@ -106,6 +117,7 @@ func privateRequest(_ owner: InstallOwner) throws -> InstallRequest {
     try require(fd >= 0); defer { close(fd) }
     try metadata(fd, uid: owner.uid, mode: 0o600)
     let request = try JSONDecoder().decode(InstallRequest.self, from: readBounded(fd))
+    try InstallPolicy.validateRequest(request)
     try require(request.owner == owner); return request
 }
 func requirement(_ identifier: String) -> SecRequirement? {
@@ -131,26 +143,50 @@ func executablePath(_ pid: Int32) throws -> String {
     var bytes = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
     try require(proc_pidpath(pid, &bytes, UInt32(bytes.count)) > 0); return String(cString: bytes)
 }
-/// Bind both script stages to the same kernel-identified Apple PackageKit
-/// invocation. Start fields are exact identity, never elapsed-time heuristics.
+/// Each stage must descend from Apple's PackageKit script service. The marker
+/// binds the actual root-owned extracted Scripts guard vnode and directory,
+/// The required pre/post vnode continuity is an unverified integration
+/// assumption until a genuine signed package is exercised. A mismatch fails
+/// closed and retains the marker; it is not treated as verified completion.
 func installerInvocation() throws -> String {
-    var pid = getppid()
+    var pid = getppid(), trusted = false
     for _ in 0..<12 {
         let info = try processInfo(pid)
         let path = try executablePath(pid)
-        if path.hasSuffix("/package_script_service") || path == "/System/Library/PrivateFrameworks/PackageKit.framework/Resources/installd" || path == "/System/Library/PrivateFrameworks/PackageKit.framework/Resources/system_installd" {
+        let known: [(String, String)] = [
+            ("/System/Library/PrivateFrameworks/PackageKit.framework/XPCServices/package_script_service.xpc/Contents/MacOS/package_script_service", "com.apple.package-script-service"),
+            ("/System/Library/PrivateFrameworks/PackageKit.framework/Resources/installd", "com.apple.installd"),
+            ("/System/Library/PrivateFrameworks/PackageKit.framework/Resources/system_installd", "com.apple.system_installd")]
+        if let identity = known.first(where: { URL(fileURLWithPath: $0.0).resolvingSymlinksInPath().path == path })?.1 {
             var code: SecCode?; var req: SecRequirement?
             let attributes = [kSecGuestAttributePid as String: NSNumber(value: pid)] as CFDictionary
             try require(SecCodeCopyGuestWithAttributes(nil, attributes, [], &code) == errSecSuccess)
-            try require(SecRequirementCreateWithString("anchor apple" as CFString, [], &req) == errSecSuccess)
+            try require(SecRequirementCreateWithString("anchor apple and identifier \"\(identity)\"" as CFString, [], &req) == errSecSuccess)
             guard let code, let req else { throw InstallGuardError.invalidSignature }
             try require(SecCodeCheckValidity(code, [], req) == errSecSuccess && info.pbi_uid == 0)
-            return "\(pid):\(info.pbi_start_tvsec):\(info.pbi_start_tvusec):\(path)"
+            trusted = true; break
         }
-        try require(info.pbi_ppid > 1 && info.pbi_ppid != UInt32(pid)); pid = Int32(info.pbi_ppid)
+        if info.pbi_ppid <= 1 || info.pbi_ppid == UInt32(pid) { break }
+        pid = Int32(info.pbi_ppid)
     }
-    throw InstallGuardError.invalidSignature
+    try require(trusted)
+    let source = URL(fileURLWithPath: try executablePath(getpid())).resolvingSymlinksInPath()
+    var cursor = source
+    while cursor.path != "/" {
+        var item = stat(); try require(lstat(cursor.path, &item) == 0 && item.st_uid == 0 && item.st_mode & S_IFMT != S_IFLNK)
+        if cursor.path == "/private/tmp" {
+            try require(item.st_mode & S_IFMT == S_IFDIR && item.st_mode & S_ISVTX != 0)
+            break // Sticky root namespace protects its root-owned package arena.
+        }
+        try require(item.st_mode & 0o022 == 0)
+        cursor.deleteLastPathComponent()
+    }
+    var file = stat(), directory = stat()
+    try require(lstat(source.path, &file) == 0 && file.st_mode & S_IFMT == S_IFREG && file.st_nlink == 1)
+    try require(lstat(source.deletingLastPathComponent().path, &directory) == 0)
+    return "\(source.path):\(file.st_dev):\(file.st_ino):\(directory.st_dev):\(directory.st_ino)"
 }
+
 func run(_ executable: String, _ arguments: [String]) throws -> Data {
     let process = Process(); process.executableURL = URL(fileURLWithPath: executable)
     process.arguments = arguments; process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"]
@@ -192,6 +228,7 @@ func main() throws {
     var invocation: String? = nil
     if scripted { try require(args.count == 3 && args[2] == "/"); invocation = try installerInvocation() }
     else { try require(try executablePath(getpid()) == guardPath); try protectedPath(guardPath) }
+    let currentBoot = try bootIdentifier()
     let store = try RootStore()
     let update = try store.lockFile("update.lock"); defer { close(update) }
     let controller = try store.lockFile("controller.lock"); defer { close(controller) }
@@ -200,6 +237,7 @@ func main() throws {
     let existing = try store.load()
     if operation == "begin" {
         let package = args[1]
+        try FixedCommandLink.validate(atPath: "/usr/local/bin/nightr", canonicalTarget: "/Applications/Nightr.app/Contents/MacOS/nightr")
         try require(package.hasPrefix("/") && URL(fileURLWithPath: package).standardizedFileURL.path == package)
         let output = try run("/usr/sbin/pkgutil", ["--check-signature", package])
         try require(String(data: output, encoding: .utf8)?.contains("(\(BuildPolicy.teamID))") == true)
@@ -210,13 +248,17 @@ func main() throws {
         if existing != nil { original = existing?.originalVersion }
         else if FileManager.default.fileExists(atPath: appPath) { original = try installedVersion(receipt: true) }
         else { original = nil }
-        try require(try lockOwner(update) == owner)
-        var marker = try InstallPolicy.begin(existing: existing, owner: owner, request: request, packagePath: package, version: BuildPolicy.version, teamID: BuildPolicy.teamID, originalVersion: original, controllerExclusive: exclusive)
-        marker.invocation = invocation
+        let marker = try InstallPolicy.begin(existing: existing, owner: owner, request: request, packagePath: package, version: BuildPolicy.version, teamID: BuildPolicy.teamID, originalVersion: original, controllerExclusive: exclusive, bootID: currentBoot, invocation: invocation ?? "")
         try store.save(marker, replacing: existing?.generation)
+        // Publish the fail-closed marker before the final checks. If the parent
+        // died in the earlier gap, a controller might already have started.
+        // Its shared controller lock, or the missing record-lock owner, now
+        // refuses payload authorization while retaining the pending marker.
+        try InstallPolicy.authorizePublishedBegin(marker, observedOwner: lockOwner(update), controllerExclusive: owner == nil ? exclusive : managedControllerIsExclusive(controller))
     } else if operation == "complete" {
         guard let existing else { throw InstallGuardError.invalidPhase }
-        try require(existing.invocation == invocation)
+        try require(existing.bootID == currentBoot)
+        try InstallPolicy.verifyInvocation(existing, identity: invocation)
         if owner == nil { try exclusiveRecordLock(update); try require(flock(controller, LOCK_EX | LOCK_NB) == 0) }
         else { try require(managedControllerIsExclusive(controller)) }
         try require(try installedVersion(receipt: false) == BuildPolicy.version)
@@ -232,12 +274,18 @@ func main() throws {
         try require(try lockOwner(update) == owner)
         try InstallPolicy.finish(existing, owner: owner, request: request, transaction: transaction, installedVersion: version, teamID: BuildPolicy.teamID)
         try store.clear(existing.generation)
+    } else if operation == "rollback-ready" {
+        try require(args.count == 2)
+        guard let existing, let transaction = UUID(uuidString: args[1]) else { throw InstallGuardError.invalidRequest }
+        try require(managedControllerIsExclusive(controller) && existing.bootID == currentBoot)
+        try require(try lockOwner(update) == owner)
+        try InstallPolicy.rollbackReady(existing, owner: owner, request: request, transaction: transaction)
     } else if operation == "repair" {
         try require(args.count == 1 && owner == nil)
         try exclusiveRecordLock(update); try require(flock(controller, LOCK_EX | LOCK_NB) == 0)
         guard let existing else { return }
         let version = try installedVersion(receipt: true)
-        try InstallPolicy.repair(existing, installedVersion: version, teamID: BuildPolicy.teamID)
+        try InstallPolicy.repair(existing, installedVersion: version, teamID: BuildPolicy.teamID, currentBootID: currentBoot)
         try store.clear(existing.generation)
     } else { throw InstallGuardError.invalidRequest }
 }

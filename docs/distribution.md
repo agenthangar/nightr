@@ -44,38 +44,99 @@ The shared stdlib installer is `scripts/nightr_install.py`. Its internal API is
 `check` creates no persistent state, prompt, install or service registration.
 It returns `installed`, `owner`, `version`, `availableVersion` and
 `updateAvailable`. Failure returns a JSON `error` and nonzero exit status.
-`adopt-homebrew` verifies a cask receipt and canonical signed app;
-`adopt-direct` verifies the package receipt, canonical app and published release,
-then obtains a verified rollback artifact. Adoption preserves the package owner.
+`adopt-homebrew` verifies a real cask receipt, the approved cask contract and
+the canonical signed app. `adopt-direct` verifies the package receipt, canonical
+app and published release, then obtains a verified rollback artifact. Adoption
+preserves an existing package owner.
+
+For a manually installed signed package without an ownership record,
+`nightr setup --direct-updates` explicitly claims direct update ownership. When
+Homebrew is unavailable, this requires both standard Nightr cask receipt
+locations to be authoritatively absent. It also asserts that a custom-prefix
+Homebrew does not own this copy; Nightr cannot prove absence in an unknown
+custom prefix. The app's signatures, root ownership, team, version, package
+receipt and rollback artifact still have to verify. A known Homebrew owner,
+any Nightr cask receipt, or a failed receipt query blocks the claim. Automatic
+adoption of an unowned app remains conservative and reports this explicit setup
+route instead of guessing.
 
 The authoritative per-user package record is
 `~/Library/Application Support/Nightr/installation.json` (schema version 1):
 `owner` (`direct` or `homebrew`), `appPath`, `version`, `teamID`, and direct-copy
-`artifactSHA256`. Integration opt-in maintained by `t` is a separate record.
-Neither enabling the integration nor uninstalling `t` transfers package ownership.
-An update never installs a missing app. Owner conflicts fail with repair guidance.
+`artifactSHA256`. Integration opt-in maintained by `t` is separate. Neither
+enabling that integration nor uninstalling `t` transfers package ownership.
+An update never installs a missing app. Stale user records are checked against
+the actual signed installation and package receipt before replacement.
 
-A package lock excludes concurrent operations for one user. Homebrew-owned
-updates delegate to `brew upgrade --cask agenthangar/tap/nightr`. Direct updates
-fetch the GitHub release manifest over HTTPS, enforce the repository's exact
-release-asset URL, version/protocol/architecture fields and SHA-256, then mount
-the DMG read-only beneath the root-protected `/Volumes` namespace. The app's
-identifier and Developer ID team must match, the app and nested executables
-must pass strict signature validation, and the app and installer must pass
-Gatekeeper assessment. The package needs a matching Developer ID Installer
-signature. The only elevated operation is Apple's fixed `/usr/sbin/installer`
-with that verified package on the immutable mounted volume. Unattended users
-without existing root authorization receive an actionable error.
+Direct updates fetch the GitHub release manifest over HTTPS and enforce its
+exact repository asset URL, version, protocol, architectures and SHA-256. The
+DMG is mounted read-only beneath the root-protected `/Volumes` namespace. App
+and nested executable identifiers and Developer ID team must match; strict
+signature validation and Gatekeeper assessment must pass. The package also
+needs a matching Developer ID Installer signature. Apple's fixed system
+Installer reads that verified immutable package. Unattended callers without
+existing root authorization receive an actionable error.
 
-Updates quiesce the canonical controller through its signed internal
-`package prepare-update` operation while preserving enabled intent. They keep
-configuration, Keychain entries and runtime state in place. Direct updates
-retain the prior checksummed DMG in the user's package cache, verify and mount
-it again before rollback, and coordinate `package finish-update` only after
-verifying the installed app. A failed rollback leaves protection stopped and
-reports repair instructions; it does not claim success. Apple's Installer and
-receipts are not an atomic filesystem swap. Homebrew owns its rollback policy;
-Nightr resumes only a verifiably valid package after a Homebrew failure.
+A per-user lock excludes competing user operations. The signed package creates
+stable root-owned machine locks beneath `/Library/Application Support/Nightr`:
+`update.lock` uses a whole-file POSIX record lock and `controller.lock` uses
+`flock`. The managed updater holds the exclusive update gate, quiesces its
+controller while preserving enabled intent, then requires exclusive controller
+access. Another user's live controller makes replacement fail. Controller
+startup checks the root transaction marker both before and after taking its
+shared guards.
+
+The signed compiled installer guard is included in the package's Scripts and
+installed in the root-owned privileged-tools directory. Before any payload
+write, it publishes a durable pending root marker. Managed transactions bind
+the marker to the kernel's update-lock owner PID, UID, process birth and boot
+UUID, plus that user's private bounded request, exact package path and random
+transaction UUID. The guard rechecks ownership and controller exclusion after
+marker publication. Manual package installation uses the same marker barrier,
+so ending preinstall does not reopen controller startup during payload writes.
+Unrelated entries at the package's public command path are rejected.
+
+Preinstall and postinstall must use the same root-owned extracted Scripts guard
+vnode and directory. This continuity is a **required, unverified integration
+assumption**, not evidence from unit tests or compilation. Each stage must also
+come through the pinned Apple PackageKit service. A mismatch fails closed and
+retains the marker. Verify the complete signed install and upgrade flow in an
+authorized disposable macOS environment before public release.
+
+Direct updates retain the prior checksummed DMG for rollback. Automatic
+rollback is allowed only after the root guard has recorded verified completion
+of the new payload. A pending operation may still be running in PackageKit
+after its client fails or times out, so it cannot start a second installation
+or clear the marker. Such an interrupted or orphaned transaction requires a
+reboot before repair. After reboot, reinstalling the recorded original or new
+signed package preserves the marker and root generation, binds the new trusted
+Scripts invocation, and clears the barrier only after verified completion.
+A complete signed app with its matching receipt can also be verified by the
+fixed guard's explicit repair operation after reboot. Recorded original and
+new versions remain available even if a rollback attempt failed.
+
+Configuration, Keychain entries and runtime state remain in place. All fallible
+cache and ownership-record work completes before the managed guard finishes
+and locks are released. Only then may `package finish-update` resume the prior
+owned intent, subject to a fresh durable Stop check. A resume failure reports
+the committed version and never rolls back an already resumed controller.
+Apple's Installer and receipts are not an atomic filesystem swap.
+
+Homebrew uses only the reviewed PKG-only cask template. The exact qualified
+cask, version, URL, checksum and absence of extra hooks are checked before the
+same resolved Homebrew executable runs with automatic updating and API
+installation disabled. This is a preflight audit, not atomic source pinning;
+concurrent changes by the account managing Homebrew or its tap are outside the
+guarantee. An unavailable or different contract fails closed for a Homebrew-owned
+copy; a fresh installation may use the verified direct package instead.
+
+Nightr releases its update gate while Homebrew invokes the guarded package.
+On every exit it reacquires the gate and requires an absent marker, valid
+actual app/guard/nested signatures, matching package receipt and real Homebrew
+receipt before updating ownership metadata or resuming. Homebrew owns its
+rollback policy. Python never rolls back its payload or clears another
+transaction's marker. A Homebrew failure remains a failure even when the
+original valid version can safely resume.
 
 ## Privileged power protocol
 

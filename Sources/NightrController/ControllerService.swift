@@ -22,6 +22,7 @@ public actor ControllerService {
     private var protectionEpoch = 0
     private var message: String?
     private var running = false
+    private var persistenceError: String?
     public init(platform: any ControllerPlatform, settingsStore: SettingsStore = SettingsStore(), runtimeDirectory: URL = NightrPaths.runtime) throws {
         self.platform = platform; self.settingsStore = settingsStore; self.runtimeDirectory = runtimeDirectory
         engine = MonitorEngine(settings: try settingsStore.load())
@@ -59,6 +60,7 @@ public actor ControllerService {
     public func request(_ request: ControllerRequest) async -> ControllerResponse {
         guard request.version == ControllerRequest.version else { return ControllerResponse(error: "incompatible controller protocol") }
         do {
+            var requestError: String?
             switch request.command {
             case .status: break
             case .start:
@@ -70,33 +72,35 @@ public actor ControllerService {
                         engine = MonitorEngine(settings: requested, state: engine.state, sample: engine.sample)
                     }
                 }
-                await send(.start)
-            case .stop: await send(.stop)
+                requestError = await send(.start)
+            case .stop: requestError = await send(.stop)
             case .applySettings:
                 guard let settings = request.settings else { return ControllerResponse(error: "settings required") }
-                try settings.validate(); await send(.settings(settings))
-            case .retryNow: await send(.retryNow)
-            case .tryAgain: await send(.tryAgain)
-            case .skipFallback: await send(.skipFallback)
+                try settings.validate(); requestError = await send(.settings(settings))
+            case .retryNow: requestError = await send(.retryNow)
+            case .tryAgain: requestError = await send(.tryAgain)
+            case .skipFallback: requestError = await send(.skipFallback)
             case .prepareUpdate: await shutdown(preserveIntent: true)
             }
-            return ControllerResponse(status: status())
+            return ControllerResponse(status: status(), error: requestError ?? persistenceError)
         } catch { return ControllerResponse(error: error.localizedDescription) }
     }
-    public func send(_ event: MonitorEvent) async {
-        guard running else { return }
+    @discardableResult public func send(_ event: MonitorEvent) async -> String? {
+        guard running else { return "controller stopping" }
         let effects = engine.handle(event, now: Date())
         if effects.contains(where: { effect in
             switch effect { case .acquireHold, .releaseHold: return true; default: return false }
         }) { protectionEpoch += 1 }
         let transitionEpoch = protectionEpoch
         // Desired intent and consumed attempt reservations reach disk before any external effect.
-        do { try persist() }
+        do { try persist(); persistenceError = nil }
         catch {
             message = "Unable to persist controller safety state: \(error.localizedDescription)"
+            let failure = message
+            persistenceError = failure
             _ = engine.handle(.stop, now: Date()); generation += 1
             operations.values.forEach { $0.cancel() }; operations.removeAll()
-            await cancelPlatformOperations(); protectionEpoch += 1; await protection?.submit(nil, epoch: protectionEpoch); return
+            await cancelPlatformOperations(); protectionEpoch += 1; await protection?.submit(nil, epoch: protectionEpoch); return failure
         }
         for effect in effects {
             switch effect {
@@ -117,6 +121,7 @@ public actor ControllerService {
                 if engine.verificationEligible { await platform.notifyHotspot() }
             }
         }
+        return nil
     }
     private func cancelPlatformOperations() async {
         let barrier = Task { [platform] in await platform.cancelOperations() }

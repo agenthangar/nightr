@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+[ "$#" -ge 3 ] && [ "$3" = / ] || exit 78
+scripts=$(CDPATH='' cd -- "$(/usr/bin/dirname -- "$0")" && pwd)
+exec "$scripts/ai.nightr.installguard" complete "$1" "$3"

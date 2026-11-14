@@ -20,6 +20,17 @@ def main():
             app = mount / "Nightr.app"
             nightr_install.verify_app(app, args.team_id, args.version)
             nightr_install.verify_package(mount / "Nightr.pkg", args.team_id)
+            expanded = Path(temporary) / "expanded"
+            nightr_install.run(["/usr/sbin/pkgutil", "--expand-full", mount / "Nightr.pkg", expanded], timeout=120)
+            guard = expanded / "Payload/Library/PrivilegedHelperTools/ai.nightr.installguard"
+            script_guard = expanded / "Scripts/ai.nightr.installguard"
+            requirement = f'anchor apple generic and identifier "ai.nightr.installguard" and certificate leaf[subject.OU] = "{args.team_id}"'
+            for binary in [guard, script_guard]:
+                nightr_install.run(["/usr/bin/codesign", "--verify", "--strict", "--all-architectures", "-R", requirement, binary])
+                if sorted(nightr_install.run(["/usr/bin/lipo", "-archs", binary]).split()) != ["arm64", "x86_64"]:
+                    raise RuntimeError("Installer guard is not universal")
+            if nightr_install._sha256(guard) != nightr_install._sha256(script_guard):
+                raise RuntimeError("Installer script and installed guards differ")
             nightr_install.run(["/usr/bin/xcrun", "stapler", "validate", mount / "Nightr.pkg"])
             for name in ["NightrApp", "nightr-native", "nightr-powerhelper", "NightrNetworkWorker"]:
                 output = nightr_install.run(["/usr/bin/lipo", "-archs", app / "Contents/MacOS" / name])

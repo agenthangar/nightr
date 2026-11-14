@@ -5,17 +5,13 @@ import NightrCore
 import NightrController
 import NightrPlatform
 
-private enum SettingsSection: String, CaseIterable, Identifiable {
-    case general = "General", protection = "Protection", connectivity = "Connectivity", advanced = "Advanced"
-    var id: String { rawValue }
+private extension NightrSettingsSection {
     var symbol: String { switch self { case .general: return "gearshape"; case .protection: return "moon"; case .connectivity: return "wifi"; case .advanced: return "slider.horizontal.3" } }
 }
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
-    var initialConnectivity = false
     let close: () -> Void
-    @State private var section = SettingsSection.general
     @State private var draft = NightrCore.Settings()
     @State private var original = NightrCore.Settings()
     @State private var expected: Data?
@@ -32,13 +28,13 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack { Text("Nightr Settings").font(.headline); Spacer() }.padding(18)
-            Picker("Section", selection: $section) {
-                ForEach(SettingsSection.allCases) { item in Label(item.rawValue, systemImage: item.symbol).tag(item) }
+            Picker("Section", selection: $model.presentation.section) {
+                ForEach(NightrSettingsSection.allCases) { item in Label(item.rawValue, systemImage: item.symbol).tag(item) }
             }.pickerStyle(.segmented).padding(.horizontal, 18).padding(.bottom, 14)
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    switch section {
+                    switch model.presentation.section {
                     case .general: general
                     case .protection: protection
                     case .connectivity: connectivity
@@ -188,7 +184,7 @@ struct SettingsView: View {
         Binding(get: { draft[keyPath: key] }, set: { draft[keyPath: key] = $0; draft.requirement = .all; conditionsEdited = true })
     }
     private func load() {
-        if initialConnectivity { section = .connectivity }
+        guard !loaded else { return }
         do {
             expected = try? Data(contentsOf: model.store.url)
             draft = try model.store.load(); original = draft; loaded = true

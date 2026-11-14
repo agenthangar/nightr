@@ -4,6 +4,7 @@ import AppKit
 import NightrCore
 
 @main struct NightrApp: App {
+    @NSApplicationDelegateAdaptor(NightrApplicationDelegate.self) private var applicationDelegate
     @StateObject private var model: AppModel
     init() {
         // Controller-only launches must eagerly boot even though the menu extra
@@ -12,7 +13,7 @@ import NightrCore
         _model = StateObject(wrappedValue: instance)
     }
     var body: some Scene {
-        MenuBarExtra(isInserted: .constant(!CommandLine.arguments.contains("--controller-only"))) {
+        MenuBarExtra(isInserted: $model.presentation.menuVisible) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack { MoonSpark().frame(width: 23, height: 23); Text("Nightr").font(.headline); Spacer(); Text(model.label).foregroundStyle(.secondary) }
                 Button(model.status?.state.desiredEnabled == true ? "Stop" : "Start") {

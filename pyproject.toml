@@ -4,7 +4,7 @@ testpaths = ["tests"]
 markers = ["macos_ui: opens native desktop windows (requires --run-macos-ui)"]
 
 [tool.coverage.run]
-include = ["*/libexec/nosleep_config.py", "*/libexec/nosleep_hotspot.py", "*/libexec/nosleep_wifi.py", "*/libexec/nightr_terminal.py"]
+include = ["*/scripts/nightr_install.py", "*/libexec/nosleep_config.py", "*/libexec/nosleep_hotspot.py", "*/libexec/nosleep_wifi.py", "*/libexec/nightr_terminal.py"]
 
 [tool.coverage.report]
 # Preserve upstream scope: terminal rendering/TTY and CLI dispatch are exercised
