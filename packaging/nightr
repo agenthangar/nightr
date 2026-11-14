@@ -1,0 +1,3 @@
+#!/bin/zsh -f
+# The canonical signed native controller also routes the bundled rail editor.
+exec /Applications/Nightr.app/Contents/MacOS/nightr-native "$@"

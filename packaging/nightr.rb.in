@@ -1,0 +1,12 @@
+cask "nightr" do
+  version "{{VERSION}}"
+  sha256 "{{SHA256}}"
+
+  url "https://github.com/agenthangar/nightr/releases/download/v#{version}/Nightr-#{version}-universal.dmg"
+  name "Nightr"
+  desc "Keep a Mac awake for coding-agent work"
+  homepage "https://nightr.ai"
+  depends_on macos: ">= :ventura"
+
+  pkg "Nightr.pkg"
+end

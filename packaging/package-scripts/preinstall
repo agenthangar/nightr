@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+# Apple's Installer supplies $1 = package path and $3 = target volume. Only the
+# trusted compiled guard in this signed Scripts archive controls the marker.
+[ "$#" -ge 3 ] && [ "$3" = / ] || exit 78
+scripts=$(CDPATH='' cd -- "$(/usr/bin/dirname -- "$0")" && pwd)
+exec "$scripts/ai.nightr.installguard" begin "$1" "$3"

@@ -1,0 +1,33 @@
+name: Standalone CLI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install -y zsh
+      - run: python -m pip install -r requirements-dev.txt
+      - name: Shell syntax
+        run: for file in zsh/*.zsh; do zsh -n "$file" || exit; done
+      - name: Isolated runtime and helper tests
+        run: python -m pytest --cov --cov-report=term-missing --cov-fail-under=97
+
+  swift-core:
+    runs-on: ubuntu-latest
+    container: swift:6.2-noble
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify pinned toolchain
+        run: swift --version | tee /tmp/swift-version && grep -F 'Swift version 6.2' /tmp/swift-version
+      - name: Pure controller, network and lease tests
+        run: swift test

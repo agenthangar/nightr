@@ -1,0 +1,97 @@
+name: Signed macOS release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Stable patch version without v (for example 0.1.0)'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: nightr-production-release
+  cancel-in-progress: false
+jobs:
+  release:
+    # Explicit manual release only; ordinary PR checks never launch native UI.
+    runs-on: macos-14
+    environment: release
+    permissions:
+      contents: write
+    env:
+      NIGHTR_TEAM_ID: ${{ vars.NIGHTR_TEAM_ID }}
+      NIGHTR_APPLICATION_IDENTITY: ${{ vars.NIGHTR_APPLICATION_IDENTITY }}
+      NIGHTR_INSTALLER_IDENTITY: ${{ vars.NIGHTR_INSTALLER_IDENTITY }}
+      NIGHTR_NOTARY_PROFILE: nightr-release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify requested release and genuine signing configuration
+        env:
+          VERSION: ${{ inputs.version }}
+          CERTIFICATE: ${{ secrets.NIGHTR_SIGNING_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.NIGHTR_SIGNING_CERTIFICATE_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.NIGHTR_NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NIGHTR_NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NIGHTR_NOTARY_ISSUER_ID }}
+        run: |
+          python3 - <<'PY'
+          import os,re
+          assert re.fullmatch(r'0\.[0-9]+\.[0-9]+', os.environ['VERSION']), 'Invalid stable version'
+          for key in ('NIGHTR_TEAM_ID','NIGHTR_APPLICATION_IDENTITY','NIGHTR_INSTALLER_IDENTITY','CERTIFICATE','CERTIFICATE_PASSWORD','NOTARY_KEY','NOTARY_KEY_ID','NOTARY_ISSUER'):
+              assert os.environ.get(key), f'Missing genuine release signing configuration: {key}'
+          PY
+      - name: Verify reviewed tag targets this main commit
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          test "$(git rev-parse "v$VERSION^{commit}")" = "$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Import ephemeral Developer ID identities
+        env:
+          CERTIFICATE: ${{ secrets.NIGHTR_SIGNING_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.NIGHTR_SIGNING_CERTIFICATE_PASSWORD }}
+          NOTARY_KEY: ${{ secrets.NIGHTR_NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NIGHTR_NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NIGHTR_NOTARY_ISSUER_ID }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/nightr-signing.keychain-db"
+          PASSWORD="$(openssl rand -hex 32)"
+          echo "::add-mask::$PASSWORD"
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          printf '%s' "$NOTARY_KEY" > "$RUNNER_TEMP/notary.p8"
+          security create-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productsign
+          security list-keychains -d user -s "$KEYCHAIN"
+          security default-keychain -d user -s "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$PASSWORD" "$KEYCHAIN"
+          xcrun notarytool store-credentials "$NIGHTR_NOTARY_PROFILE" --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" --keychain "$KEYCHAIN"
+          rm -f "$RUNNER_TEMP/signing.p12" "$RUNNER_TEMP/notary.p8"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate safe unit and extraction contracts
+        run: |
+          python3 -m pip install -r requirements-dev.txt
+          python3 -m pytest --cov --cov-fail-under=97
+          swift test
+      - name: Build, sign, notarize, staple and verify release
+        env:
+          VERSION: ${{ inputs.version }}
+        run: python3 scripts/build_release.py --version "$VERSION" --output dist
+      - name: Publish verified artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "v$VERSION" "dist/Nightr-$VERSION-universal.dmg" dist/nightr-release.json --target "$GITHUB_SHA" --title "Nightr $VERSION" --generate-notes --verify-tag
+      - name: Remove ephemeral signing state
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/nightr-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/signing.p12" "$RUNNER_TEMP/notary.p8"
