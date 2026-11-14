@@ -104,9 +104,15 @@ public struct MonitorEngine: Sendable {
             if sample.lidClosed != value.lidClosed { lastConditionCheck = nil; resetConditions() }; sample = value
             if let pendingSettings {
                 changedSettings = settings != pendingSettings
+                let previouslyRequiredInternet = settings.monitoring && settings.internet
                 settings = pendingSettings; self.pendingSettings = nil
                 if !settings.monitoring || !settings.internet {
                     cancel(&effects); state.internet = .unknown; state.lastInternetVerified = false
+                    if previouslyRequiredInternet {
+                        // A deliberate policy change can make only this cause obsolete.
+                        if state.pause == .connectivity { state.pause = nil; resetConditions() }
+                        if state.resumePause == .connectivity { state.resumePause = nil }
+                    }
                 } else if !settings.hotspot { cancelJoin(&effects) }
             }
         case .sleep:
@@ -179,6 +185,7 @@ public struct MonitorEngine: Sendable {
         effects.append(.persist)
         return effects
     }
+    private var fallbackEligible: Bool { verificationEligible && settings.hotspot && !settings.hotspotSSID.isEmpty }
     private var hardPause: Bool { [.stopped, .ownership, .crashLimit, .loginOptOut].contains(where: { state.pause == $0 }) }
     private mutating func resetConditions() { lastConditionCheck = nil; state.failureBeganAt = nil; state.conditionRetries = 0; state.nextConditionRetryAt = nil; state.retryFor = nil }
     private mutating func rememberSafetyPause() {
@@ -221,7 +228,7 @@ public struct MonitorEngine: Sendable {
             if state.conditionRetries < settings.retries { return }
         }
         // A live bounded fallback cycle gets its configured outage delay and attempts.
-        if let outage = state.outage, settings.hotspot, !outage.skipped, outage.repairRequired == nil,
+        if let outage = state.outage, fallbackEligible, !outage.skipped, outage.repairRequired == nil,
            outage.consumed < outage.capturedLimit || joinToken != nil { return }
         state.pause = missing
         release(&effects)
@@ -232,7 +239,7 @@ public struct MonitorEngine: Sendable {
         effects.append(.verifyInternet(token, timeout: 10))
     }
     private mutating func startHotspot(now: Date, effects: inout [MonitorEffect]) {
-        guard settings.hotspot, !settings.hotspotSSID.isEmpty, joinToken == nil, var outage = state.outage,
+        guard fallbackEligible, joinToken == nil, var outage = state.outage,
               !outage.skipped, outage.repairRequired == nil, outage.consumed < outage.capturedLimit,
               now >= outage.nextAttemptAt else { return }
         if !outage.prompted { outage.prompted = true; effects.append(.promptHotspot) }

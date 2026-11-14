@@ -193,6 +193,66 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(engine.state.outage?.consumed, 1)
         XCTAssertFalse(engine.verificationEligible)
     }
+    func testRetainedOutageCannotHoldAgentOnlyRunPastInactivity() {
+        var settings = Settings(); settings.internet = false; settings.hotspot = true; settings.hotspotSSID = "phone"; settings.grace = 0; settings.retries = 0
+        var state = ControllerState(); state.desiredEnabled = true; state.pause = nil
+        state.outage = OutageLedger(now: now, settings: settings)
+        state.lastAgentActiveAt = now.addingTimeInterval(-100); state.agentSamples = 2
+        var engine = MonitorEngine(settings: settings, state: state)
+        _ = engine.handle(.tick(MachineSample(lidClosed: true)), now: now)
+        XCTAssertEqual(engine.state.pause, .inactivity); XCTAssertFalse(engine.holding)
+        XCTAssertEqual(engine.state.outage?.capturedLimit, 3); XCTAssertEqual(engine.state.outage?.consumed, 0)
+        XCTAssertNil(engine.verificationToken); XCTAssertNil(engine.joinToken)
+    }
+    func testDisablingInternetPolicyClearsOnlyObsoleteConnectivityPause() {
+        var policies: [Settings] = []
+        var noInternet = Settings(); noInternet.internet = false; policies.append(noInternet)
+        var forever = Settings(); forever.forever = true; policies.append(forever)
+        var none = Settings(); none.requirement = .none; policies.append(none)
+        var noChecks = Settings(); noChecks.agent = false; noChecks.internet = false; policies.append(noChecks)
+        for changed in policies {
+            var state = ControllerState(); state.desiredEnabled = true; state.pause = .connectivity
+            var engine = MonitorEngine(state: state)
+            _ = engine.handle(.settings(changed), now: now)
+            _ = engine.handle(.tick(MachineSample(agentActive: true, lidClosed: true)), now: now)
+            XCTAssertNil(engine.state.pause); XCTAssertTrue(engine.holding)
+            XCTAssertNil(engine.verificationToken); XCTAssertNil(engine.joinToken)
+        }
+        // Unrelated edits do not bypass verification for the still-selected condition.
+        var state = ControllerState(); state.desiredEnabled = true; state.pause = .connectivity
+        var engine = MonitorEngine(state: state)
+        var changed = Settings(); changed.displayOn = true
+        _ = engine.handle(.settings(changed), now: now)
+        _ = engine.handle(.tick(MachineSample(agentActive: true)), now: now)
+        XCTAssertEqual(engine.state.pause, .connectivity); XCTAssertFalse(engine.holding)
+    }
+    func testPolicyChangeCannotResumeStopSafetyOrInactivityPauses() {
+        let reasons: [PauseReason] = [.stopped, .battery, .inactivity, .asleep, .maintenanceWake, .setup, .ownership, .crashLimit, .loginOptOut]
+        for reason in reasons {
+            var settings = Settings(); settings.batteryProtection = true
+            var state = ControllerState(); state.desiredEnabled = reason != .stopped; state.pause = reason
+            if reason == .battery || reason == .setup { state.resumePause = .inactivity }
+            var engine = MonitorEngine(settings: settings, state: state)
+            settings.forever = true
+            _ = engine.handle(.settings(settings), now: now)
+            let sample = MachineSample(onBattery: reason == .battery, batteryPercent: reason == .battery ? 10 : 80, agentActive: true, setupReady: reason != .setup)
+            let effects = engine.handle(.tick(sample), now: now)
+            XCTAssertEqual(engine.state.pause, reason); XCTAssertFalse(engine.holding)
+            XCTAssertFalse(effects.contains { if case .acquireHold = $0 { return true }; return false })
+            if reason == .battery || reason == .setup { XCTAssertEqual(engine.state.resumePause, .inactivity) }
+        }
+    }
+    func testPolicyChangeDropsSuspendedConnectivityCauseWithoutClearingBattery() {
+        var settings = Settings(); settings.batteryProtection = true
+        var state = ControllerState(); state.desiredEnabled = true; state.pause = .battery; state.resumePause = .connectivity
+        var engine = MonitorEngine(settings: settings, state: state, sample: MachineSample(onBattery: true, batteryPercent: 10))
+        settings.forever = true
+        _ = engine.handle(.settings(settings), now: now)
+        _ = engine.handle(.tick(MachineSample(onBattery: true, batteryPercent: 10)), now: now)
+        XCTAssertEqual(engine.state.pause, .battery); XCTAssertNil(engine.state.resumePause); XCTAssertFalse(engine.holding)
+        _ = engine.handle(.tick(MachineSample(onBattery: false, batteryPercent: 10)), now: now.addingTimeInterval(1))
+        XCTAssertNil(engine.state.pause); XCTAssertTrue(engine.holding)
+    }
     func testFrameLimitsAndProtocolRoundTrip() throws {
         for length in [0, 65_537, UInt32.max] {
             var size = UInt32(length).bigEndian

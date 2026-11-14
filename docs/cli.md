@@ -114,7 +114,10 @@ Automatic internet verification and saved-hotspot joins run only when automatic
 monitoring and its internet condition are enabled. Forever, require-none and
 checks-none modes, or disabling the internet condition, suppress them; explicit
 Retry now cannot bypass those choices. Disabling those checks at a loop boundary
-cancels active operations, and late results cannot rearm them.
+cancels active operations, and late results cannot rearm them. If a deliberate
+policy change makes internet unnecessary, its connectivity pause can clear; Stop,
+battery, inactivity, sleep and setup pauses retain their separate rules. A retained
+hotspot outage does not keep an agent-only run awake after inactivity retries end.
 
 Path availability and Wi-Fi association are not proof of internet access. Eligible
 verification has one active operation, a ten-second cap and a thirty-second start
