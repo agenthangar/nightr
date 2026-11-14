@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+case "$(/usr/bin/uname -m)" in
+  arm64) exec "$root/arm64/bin/python3" "$@" ;;
+  x86_64) exec "$root/x86_64/bin/python3" "$@" ;;
+  *) printf '%s\n' 'Nightr requires Apple Silicon or Intel macOS.' >&2; exit 78 ;;
+esac

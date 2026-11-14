@@ -1,0 +1,12 @@
+# Runtime ships as scripts and has no third-party Python dependencies.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["macos_ui: opens native desktop windows (requires --run-macos-ui)"]
+
+[tool.coverage.run]
+include = ["*/libexec/nosleep_config.py", "*/libexec/nosleep_hotspot.py", "*/libexec/nosleep_wifi.py", "*/libexec/nightr_terminal.py"]
+
+[tool.coverage.report]
+# Preserve upstream scope: terminal rendering/TTY and CLI dispatch are exercised
+# by subprocess/PTY contract tests; deterministic Python logic is coverage gated.
+exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:", "def main\\(", "class Style", "class _RailUI"]
