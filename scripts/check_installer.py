@@ -118,6 +118,19 @@ def verify_installation(team, version):
              'import ssl; print(ssl.OPENSSL_VERSION)'], env=env)
 
 
+def capture_install_log(report):
+    """Best-effort diagnostics only; never replace an install failure or repair it."""
+    report['installerLogTail'] = ''
+    try:
+        result = run(['/usr/bin/sudo', '-n', '/usr/bin/tail', '-n', '400', '/var/log/install.log'], timeout=15)
+        report['installerLogTail'] = result.stdout[-16384:]
+    except Exception as error:
+        if isinstance(error, subprocess.TimeoutExpired) and error.stdout:
+            partial = error.stdout.decode(errors='replace') if isinstance(error.stdout, bytes) else error.stdout
+            report['installerLogTail'] = partial[-16384:]
+        report['installerLogDiagnosticError'] = f'{type(error).__name__}: {error}'[-4096:]
+
+
 def accept(args, report):
     require_disposable(args.disposable_github_runner)
     require_fresh()
@@ -131,7 +144,11 @@ def accept(args, report):
             installer.verify_package(package, args.team_id)
             for stage in ['freshInstall', 'samePackageReinstall']:
                 report[stage] = 'started'
-                run(['/usr/bin/sudo', '-n', '/usr/sbin/installer', '-verboseR', '-dumplog', '-pkg', package, '-target', '/'], timeout=600)
+                try:
+                    run(['/usr/bin/sudo', '-n', '/usr/sbin/installer', '-verboseR', '-dumplog', '-pkg', package, '-target', '/'], timeout=600)
+                except Exception:
+                    capture_install_log(report)
+                    raise
                 verify_installation(args.team_id, args.version)
                 report[stage] = 'passed'
     report['status'] = 'passed_limited_acceptance'
