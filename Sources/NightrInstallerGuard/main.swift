@@ -14,6 +14,14 @@ func require(_ condition: @autoclosure () throws -> Bool, function: StaticString
         throw InstallGuardError.unsafeFile
     }
 }
+func requireInstallerPath(_ condition: Bool, reason: StaticString, index: Int, systemError: Int32 = 0, uid: uid_t = 0, mode: mode_t = 0) throws {
+    if !condition {
+        // Fixed reasons and numeric metadata only; never print package paths,
+        // process arguments, or user-controlled filesystem text.
+        fputs("Nightr installer path check failed: reason=\(reason) index=\(index) errno=\(systemError) uid=\(uid) mode=\(UInt32(mode))\n", stderr)
+        throw InstallGuardError.unsafeFile
+    }
+}
 func metadata(_ fd: Int32, uid: uid_t, mode: mode_t, directory: Bool = false) throws {
     var s = stat(); try require(fstat(fd, &s) == 0)
     try require(s.st_uid == uid && s.st_mode & 0o7777 == mode)
@@ -173,20 +181,29 @@ func installerInvocation() throws -> String {
         pid = Int32(info.pbi_ppid)
     }
     try require(trusted)
-    let source = URL(fileURLWithPath: try executablePath(getpid())).resolvingSymlinksInPath()
-    var cursor = source
-    while cursor.path != "/" {
-        var item = stat(); try require(lstat(cursor.path, &item) == 0 && item.st_uid == 0 && item.st_mode & S_IFMT != S_IFLNK)
-        if cursor.path == "/private/tmp" {
-            try require(item.st_mode & S_IFMT == S_IFDIR && item.st_mode & S_ISVTX != 0)
+    let source: InstallerCanonicalPath
+    do { source = try InstallerCanonicalPath(executablePath(getpid())) }
+    catch {
+        try requireInstallerPath(false, reason: "canonical-source", index: 0, systemError: errno)
+        throw error
+    }
+    for (index, path) in source.ancestors.enumerated() {
+        var item = stat()
+        let result = lstat(path, &item)
+        let systemError = result == 0 ? 0 : errno
+        try requireInstallerPath(result == 0, reason: "ancestor-stat", index: index, systemError: systemError)
+        try requireInstallerPath(item.st_uid == 0, reason: "ancestor-owner", index: index, uid: item.st_uid, mode: item.st_mode)
+        try requireInstallerPath(item.st_mode & S_IFMT != S_IFLNK, reason: "ancestor-symlink", index: index, uid: item.st_uid, mode: item.st_mode)
+        if path == "/private/tmp" {
+            try requireInstallerPath(item.st_mode & S_IFMT == S_IFDIR, reason: "temporary-directory", index: index, uid: item.st_uid, mode: item.st_mode)
+            try requireInstallerPath(item.st_mode & S_ISVTX != 0, reason: "temporary-sticky", index: index, uid: item.st_uid, mode: item.st_mode)
             break // Sticky root namespace protects its root-owned package arena.
         }
-        try require(item.st_mode & 0o022 == 0)
-        cursor.deleteLastPathComponent()
+        try requireInstallerPath(item.st_mode & 0o022 == 0, reason: "ancestor-writable", index: index, uid: item.st_uid, mode: item.st_mode)
     }
     var file = stat(), directory = stat()
     try require(lstat(source.path, &file) == 0 && file.st_mode & S_IFMT == S_IFREG && file.st_nlink == 1)
-    try require(lstat(source.deletingLastPathComponent().path, &directory) == 0)
+    try require(lstat(source.directory, &directory) == 0)
     return "\(source.path):\(file.st_dev):\(file.st_ino):\(directory.st_dev):\(directory.st_ino)"
 }
 

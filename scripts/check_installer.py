@@ -146,7 +146,9 @@ def accept(args, report):
                 report[stage] = 'started'
                 try:
                     run(['/usr/bin/sudo', '-n', '/usr/sbin/installer', '-verboseR', '-dumplog', '-pkg', package, '-target', '/'], timeout=600)
-                except Exception:
+                except Exception as error:
+                    # Preserve the primary failure before mount cleanup can fail.
+                    report['error'] = f'{type(error).__name__}: {error}'[-16384:]
                     capture_install_log(report)
                     raise
                 verify_installation(args.team_id, args.version)
@@ -171,7 +173,11 @@ def main(argv=None):
     try:
         accept(args, report)
     except Exception as error:
-        report['error'] = f'{type(error).__name__}: {error}'[-16384:]
+        failure = f'{type(error).__name__}: {error}'[-16384:]
+        if 'error' in report and report['error'] != failure:
+            report['cleanupError'] = failure
+        else:
+            report['error'] = failure
         print(report['error'], file=sys.stderr)
         return 1
     finally:

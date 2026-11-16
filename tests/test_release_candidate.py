@@ -249,3 +249,29 @@ def test_diagnostic_sudo_cannot_run_before_acceptance_gates(tmp_path, monkeypatc
     monkeypatch.setattr(acceptance, 'run', run)
     args = SimpleNamespace(disposable_github_runner=True, dmg=tmp_path / 'candidate.dmg', team_id='TEAM123456', version='0.1.0')
     with pytest.raises(RuntimeError, match='pre-install refusal'): acceptance.accept(args, {})
+
+
+def test_installer_error_survives_failed_mount_cleanup(tmp_path, monkeypatch):
+    original = RuntimeError('primary installer failure')
+    monkeypatch.setattr(acceptance, 'require_disposable', lambda opt: None)
+    monkeypatch.setattr(acceptance, 'require_fresh', lambda: None)
+    @contextlib.contextmanager
+    def mount(*args):
+        try: yield tmp_path
+        finally: raise RuntimeError('mount detach failed')
+    monkeypatch.setattr(acceptance.installer, 'mounted_dmg', mount)
+    monkeypatch.setattr(acceptance.installer, 'verify_package', lambda *a: None)
+    def run(command, **kwargs):
+        if command[:3] == ['/usr/bin/sudo', '-n', '/usr/sbin/installer']:
+            raise original
+        return SimpleNamespace(stdout='synthetic diagnostic')
+    monkeypatch.setattr(acceptance, 'run', run)
+    report_path = tmp_path / 'report.json'
+    result = acceptance.main(['--disposable-github-runner', '--dmg', str(tmp_path / 'candidate.dmg'),
+                              '--team-id', 'TEAM123456', '--version', '0.1.0', '--report', str(report_path)])
+    assert result == 1
+    report = json.loads(report_path.read_text())
+    assert report['error'] == 'RuntimeError: primary installer failure'
+    assert report['cleanupError'] == 'RuntimeError: mount detach failed'
+    assert report['status'] == 'failed' and report['freshInstall'] == 'started'
+    assert report['samePackageReinstall'] == 'untested'
