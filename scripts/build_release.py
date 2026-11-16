@@ -21,8 +21,51 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
 
+def phase(message):
+    print(message, file=sys.stderr, flush=True)
+
 def run(*args, **kwargs):
-    return subprocess.check_output([str(a) for a in args], text=True, **kwargs).strip()
+    # Retain compiler, signing and notary diagnostics on failure. Arguments never
+    # include certificate passwords or private keys; credential import is CI-only.
+    try:
+        result = subprocess.run([str(a) for a in args], text=True, capture_output=True,
+                                check=True, timeout=kwargs.pop("timeout", 600), **kwargs)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        for output in (error.stdout, error.stderr):
+            if output:
+                phase((output.decode(errors="replace") if isinstance(output, bytes) else output)[-32768:])
+        raise
+    if result.stderr: phase(result.stderr[-32768:])
+    return result.stdout.strip()
+
+def notarize(path, profile):
+    phase(f"Notarizing {path.name}")
+    # JSON makes an Accepted result mandatory, independently of process success.
+    try:
+        output = run("/usr/bin/xcrun", "notarytool", "submit", path,
+                     "--keychain-profile", profile, "--wait", "--timeout", "25m",
+                     "--output-format", "json", timeout=1560)
+    except subprocess.CalledProcessError as error:
+        output = error.stdout or ""
+        try: submission = json.loads(output)
+        except (ValueError, TypeError): raise error
+        notary_log(submission, profile)
+        raise
+    submission = json.loads(output)
+    phase(f"Notary submission {submission.get('id', 'missing ID')}: {submission.get('status', 'missing status')}")
+    if submission.get("status") != "Accepted" or not submission.get("id"):
+        notary_log(submission, profile)
+        raise RuntimeError("Notarization did not return Accepted with a submission ID")
+
+def notary_log(submission, profile):
+    identifier = submission.get("id", "")
+    if not re.fullmatch(r"[0-9a-fA-F-]{36}", identifier): return
+    phase(f"Notary failure submission ID: {identifier}")
+    try:
+        phase(run("/usr/bin/xcrun", "notarytool", "log", identifier,
+                  "--keychain-profile", profile, timeout=60)[-32768:])
+    except (subprocess.SubprocessError, OSError) as error:
+        phase(f"Notary log retrieval failed: {type(error).__name__}")
 
 def runtime(lock, destination):
     for arch, item in lock["architectures"].items():
@@ -73,6 +116,7 @@ def main():
         policy = source_root / "Sources/NightrInstallerGuard/BuildPolicy.swift"
         policy.write_text("enum BuildPolicy { static let teamID = " + json.dumps(team) + "; static let version = " + json.dumps(args.version) + " }\n")
         scratch = stage / "build"
+        phase("Building universal native targets")
         run("/usr/bin/swift", "build", "--package-path", source_root, "--scratch-path", scratch, "-c", "release", "--arch", "arm64", "--arch", "x86_64")
         binaries = Path(run("/usr/bin/swift", "build", "--package-path", source_root, "--scratch-path", scratch, "-c", "release", "--arch", "arm64", "--arch", "x86_64", "--show-bin-path"))
         app = stage / "Nightr.app"
@@ -93,6 +137,7 @@ def main():
         shutil.copy2(ROOT / "LICENSE", resources / "LICENSE")
         shutil.copy2(ROOT / "packaging/homebrew-contract.json", resources / "homebrew-contract.json")
         run("/usr/bin/swift", ROOT / "scripts/render_icon.swift", resources / "Nightr.icns")
+        phase("Downloading checksum-pinned standalone Python runtimes")
         runtime(json.loads((ROOT / "packaging/runtime-lock.json").read_text()), resources / "runtime")
         info = {"CFBundleIdentifier": "ai.nightr.app", "CFBundleName": "Nightr", "CFBundleDisplayName": "Nightr",
                 "CFBundleExecutable": "NightrApp", "CFBundleIconFile": "Nightr", "CFBundlePackageType": "APPL", "CFBundleShortVersionString": args.version,
@@ -100,6 +145,7 @@ def main():
                 "NSHighResolutionCapable": True, "NightrTeamID": team, "NightrProtocolVersion": 1,
                 "NSLocationWhenInUseUsageDescription": "Nightr uses location permission to show nearby Wi-Fi names when you choose a hotspot."}
         with (app / "Contents/Info.plist").open("wb") as output: plistlib.dump(info, output)
+        phase("Signing app and bundled executables")
         # Sign every standalone Python Mach-O before signing its enclosing app.
         magic = {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"}
         for path in sorted((resources / "runtime").rglob("*")):
@@ -113,7 +159,7 @@ def main():
         # Notarize/staple the app independently so its DMG copy is assessable.
         appzip = stage / "Nightr.zip"
         run("/usr/bin/ditto", "-c", "-k", "--keepParent", app, appzip)
-        run("/usr/bin/xcrun", "notarytool", "submit", appzip, "--keychain-profile", settings["NIGHTR_NOTARY_PROFILE"], "--wait", "--timeout", "30m")
+        notarize(appzip, settings["NIGHTR_NOTARY_PROFILE"])
         run("/usr/bin/xcrun", "stapler", "staple", app)
         guard_binary = stage / "ai.nightr.installguard"
         shutil.copy2(binaries / "NightrInstallerGuard", guard_binary)
@@ -137,9 +183,10 @@ def main():
                            "BundleIsVersionChecked": False, "BundleHasStrictIdentifier": True,
                            "BundleOverwriteAction": "upgrade"}], output)
         unsigned = stage / "unsigned.pkg"; package = stage / "Nightr.pkg"
+        phase("Building signed installer package")
         run("/usr/bin/pkgbuild", "--root", payload, "--identifier", "ai.nightr.package", "--version", args.version, "--install-location", "/", "--ownership", "recommended", "--component-plist", components, "--scripts", package_scripts, unsigned)
         run("/usr/bin/productsign", "--sign", settings["NIGHTR_INSTALLER_IDENTITY"], "--timestamp", unsigned, package)
-        run("/usr/bin/xcrun", "notarytool", "submit", package, "--keychain-profile", settings["NIGHTR_NOTARY_PROFILE"], "--wait", "--timeout", "30m")
+        notarize(package, settings["NIGHTR_NOTARY_PROFILE"])
         run("/usr/bin/xcrun", "stapler", "staple", package)
         run("/usr/bin/xcrun", "stapler", "validate", package)
         image = stage / "image"; image.mkdir()
@@ -148,9 +195,10 @@ def main():
         name = f"Nightr-{args.version}-universal.dmg"; dmg = args.output / name
         run("/usr/bin/hdiutil", "create", "-volname", "Nightr", "-srcfolder", image, "-format", "UDZO", "-ov", dmg)
         sign(dmg, settings["NIGHTR_APPLICATION_IDENTITY"])
-        run("/usr/bin/xcrun", "notarytool", "submit", dmg, "--keychain-profile", settings["NIGHTR_NOTARY_PROFILE"], "--wait", "--timeout", "30m")
+        notarize(dmg, settings["NIGHTR_NOTARY_PROFILE"])
         run("/usr/bin/xcrun", "stapler", "staple", dmg); run("/usr/bin/xcrun", "stapler", "validate", dmg)
-        run("/usr/bin/python3", ROOT / "scripts/verify_release.py", "--dmg", dmg, "--team-id", team, "--version", args.version)
+        phase("Verifying final signed DMG read-only")
+        run(sys.executable, ROOT / "scripts/verify_release.py", "--dmg", dmg, "--team-id", team, "--version", args.version)
         with dmg.open("rb") as source: digest = hashlib.file_digest(source, "sha256").hexdigest()
         manifest = {"schemaVersion": 1, "version": args.version, "platform": "macos", "minVersion": "13.0", "architectures": ["arm64", "x86_64"],
                     "teamID": team, "bundleID": "ai.nightr.app", "controllerID": "ai.nightr.controller", "helperID": "ai.nightr.powerhelper", "protocolVersion": 1,

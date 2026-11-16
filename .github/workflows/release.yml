@@ -1,24 +1,25 @@
-name: Signed macOS release
+name: Signed macOS candidate
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Stable patch version without v (for example 0.1.0)'
+        description: 'Candidate patch version without v (for example 0.1.0); never publishes'
         required: true
         type: string
 permissions:
   contents: read
 concurrency:
-  group: nightr-production-release
+  group: nightr-signed-candidate
   cancel-in-progress: false
 jobs:
-  release:
-    # Explicit manual release only; ordinary PR checks never launch native UI.
-    runs-on: macos-14
+  candidate:
+    # A dispatch from a branch or tag must never access release credentials.
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 90
     environment: release
-    permissions:
-      contents: write
     env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
       NIGHTR_TEAM_ID: ${{ vars.NIGHTR_TEAM_ID }}
       NIGHTR_APPLICATION_IDENTITY: ${{ vars.NIGHTR_APPLICATION_IDENTITY }}
       NIGHTR_INSTALLER_IDENTITY: ${{ vars.NIGHTR_INSTALLER_IDENTITY }}
@@ -26,10 +27,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 0
-      - name: Verify requested release and genuine signing configuration
+      - name: Initialize candidate acceptance evidence
+        run: |
+          mkdir -p dist
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path('dist/installer-acceptance.json').write_text(json.dumps({
+              'schemaVersion': 1, 'status': 'not_started', 'commit': os.environ['GITHUB_SHA'],
+              'runID': os.environ['GITHUB_RUN_ID'],
+              'reason': 'Build or earlier validation has not completed; see bounded Actions job logs.',
+              'untested': ['helper/login authorization', 'version-changing update', 'reboot recovery']
+          }, indent=2) + '\n')
+          PY
+      - name: Verify candidate version and genuine signing configuration
         env:
           VERSION: ${{ inputs.version }}
           CERTIFICATE: ${{ secrets.NIGHTR_SIGNING_CERTIFICATE_P12 }}
@@ -44,12 +58,12 @@ jobs:
           for key in ('NIGHTR_TEAM_ID','NIGHTR_APPLICATION_IDENTITY','NIGHTR_INSTALLER_IDENTITY','CERTIFICATE','CERTIFICATE_PASSWORD','NOTARY_KEY','NOTARY_KEY_ID','NOTARY_ISSUER'):
               assert os.environ.get(key), f'Missing genuine release signing configuration: {key}'
           PY
-      - name: Verify reviewed tag targets this main commit
-        env:
-          VERSION: ${{ inputs.version }}
+      - name: Verify exact dispatched main commit and toolchain
         run: |
-          test "$(git rev-parse "v$VERSION^{commit}")" = "$(git rev-parse HEAD)"
+          test "$GITHUB_REF" = refs/heads/main
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          xcodebuild -version
+          swift --version
       - name: Import ephemeral Developer ID identities
         env:
           CERTIFICATE: ${{ secrets.NIGHTR_SIGNING_CERTIFICATE_P12 }}
@@ -84,14 +98,31 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: python3 scripts/build_release.py --version "$VERSION" --output dist
-      - name: Publish verified artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-        run: |
-          gh release create "v$VERSION" "dist/Nightr-$VERSION-universal.dmg" dist/nightr-release.json --target "$GITHUB_SHA" --title "Nightr $VERSION" --generate-notes --verify-tag
       - name: Remove ephemeral signing state
         if: always()
         run: |
-          security delete-keychain "$RUNNER_TEMP/nightr-signing.keychain-db" || true
+          KEYCHAIN="$RUNNER_TEMP/nightr-signing.keychain-db"
+          if test -e "$KEYCHAIN"; then
+            security delete-keychain "$KEYCHAIN"
+          fi
+          test ! -e "$KEYCHAIN"
           rm -f "$RUNNER_TEMP/signing.p12" "$RUNNER_TEMP/notary.p8"
+          test ! -e "$RUNNER_TEMP/signing.p12"
+          test ! -e "$RUNNER_TEMP/notary.p8"
+      - name: Accept signed package on this disposable runner
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          python3 scripts/check_installer.py --disposable-github-runner --dmg "dist/Nightr-$VERSION-universal.dmg" --team-id "$NIGHTR_TEAM_ID" --version "$VERSION" --report dist/installer-acceptance.json
+      - name: Retain candidate and acceptance evidence (never publish)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightr-${{ inputs.version }}-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            dist/*.dmg
+            dist/nightr-release.json
+            dist/nightr.rb
+            dist/installer-acceptance.json
+          if-no-files-found: warn
+          retention-days: 14

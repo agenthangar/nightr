@@ -208,17 +208,60 @@ The GitHub HTTPS release is the acquisition authority; a bare detached signature
 without a separately pinned trust root would add no authenticity and is omitted.
 Apple Developer ID/notary validation is independently required for execution.
 
-The manual release workflow requires a reviewed stable tag on `main`, configured
-release environment and genuine Developer ID Application **and Installer**
-certificates. Configuration names are `NIGHTR_TEAM_ID`,
+The manual **Signed macOS candidate** workflow is candidate-only: it has no
+publication step or contents-write permission. Dispatch `release.yml` on `main`
+with a stable patch `version` (for example `0.1.0`). It checks out the exact
+dispatch SHA, uses the hosted `macos-15` image with Xcode 26.2 explicitly selected,
+and prints the Xcode/Swift versions. A stable tag is not required for a candidate.
+The `release` environment requires genuine Developer ID Application **and
+Installer** certificates. Configuration names are `NIGHTR_TEAM_ID`,
 `NIGHTR_APPLICATION_IDENTITY`, `NIGHTR_INSTALLER_IDENTITY`,
 `NIGHTR_SIGNING_CERTIFICATE_P12`, `NIGHTR_SIGNING_CERTIFICATE_PASSWORD`,
 `NIGHTR_NOTARY_KEY_P8`, `NIGHTR_NOTARY_KEY_ID`, and `NIGHTR_NOTARY_ISSUER_ID`.
 The exported P12 must contain both signing identities and their private keys.
+Credentials stay in the existing ephemeral workflow keychain and are removed
+before installer acceptance; cleanup runs on failure too. Do not run signing
+or acceptance on a contributor's Mac.
+
 Signing uses hardened runtime and secure timestamps; the app, package and DMG
-are notarized and stapled. `scripts/verify_release.py` verifies the actual mounted
+are notarized and stapled. Every notarization must return `Accepted` and a
+submission ID. Failures retain bounded compiler/signing diagnostics and attempt
+to fetch the notary log. `scripts/verify_release.py` verifies the actual mounted
 artifact, signatures, package, architecture slices, bundled runtimes and tickets
 without installing, launching UI, changing power or touching credentials.
+
+After safe unit/coverage and Swift checks and the signed build, the candidate
+workflow runs `scripts/check_installer.py --disposable-github-runner` against the
+actual DMG. The script also requires GitHub-hosted macOS runner markers and
+refuses existing Nightr apps, command links, guards, root state or package
+receipts; it never removes them. It verifies the DMG read-only, mounts it
+read-only, installs its signed PKG through Apple's noninteractive Installer,
+and verifies the expected team/version, app and guard signatures, matching
+receipt, root-owned canonical command link, payload ownership, exact root lock
+modes and absent transaction marker. It repeats installation of the **same
+package** and repeats those checks. Both passes are required to establish the
+PackageKit Scripts-guard vnode continuity assumption for these paths. A failed
+guard remains fail-closed; the script never clears a pending marker.
+
+Installed CLI `--version`/`--help` and the native bundled Python's isolated SSL
+import run with temporary HOME/XDG paths. A read-only launchd query must show the
+power helper remains unregistered. `setup --check` is deferred because it uses
+production power/network sampling; helper readiness is not asserted. The test
+does not launch UI, register services or start protection. Helper/login
+authorization, a **version-changing update**, and reboot recovery remain
+**untested** by this candidate workflow and are still required before public
+release. Unit tests and successful candidate checks do not satisfy those gates.
+
+The always-run artifact step retains only `dist`'s DMG, generated manifest/cask
+and `installer-acceptance.json`, named with version, dispatch SHA and run ID, for
+14 days. An initialized report records `not_started` if build or earlier checks
+fail; acceptance records each pass independently and a bounded error on failure.
+Review both the report and the job logs. A manifest/cask in this artifact is a
+candidate template: its future release URL is not evidence of a published asset.
+This workflow cannot create a GitHub release, even after limited acceptance
+passes. Publication remains deferred until the broader acceptance is complete
+and a reviewed publication path is added. Track that work in
+[issue #3](https://github.com/agenthangar/nightr/issues/3).
 
 `packaging/runtime-lock.json` pins python-build-standalone release 20261110,
 CPython 3.13.18, both architecture URLs and SHA-256 digests verified from that
