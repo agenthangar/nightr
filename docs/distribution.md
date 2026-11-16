@@ -263,6 +263,44 @@ passes. Publication remains deferred until the broader acceptance is complete
 and a reviewed publication path is added. Track that work in
 [issue #3](https://github.com/agenthangar/nightr/issues/3).
 
+### Resuming slow notarization
+
+Candidate builds retain a separate `nightr-checkpoint-VERSION-SHA-RUN_ID`
+Actions artifact on normal failure or timeout. Its explicit file allowlist is
+`checkpoint.json`, the exact submitted `Nightr.zip`, the signed universal
+`ai.nightr.installguard`, and (once constructed) the exact submitted `Nightr.pkg`
+and `submitted.dmg`, plus bounded Apple logs. No source, build cache, credentials,
+keychain, HOME or environment dump is retained. Submitted bytes and hashes stay
+unchanged; stapling modifies separate working copies. Checkpoints are recovery
+inputs, **not verified installable releases**. Abrupt runner loss before the
+always-run upload may still lose them.
+
+Submission and waiting are separate. The build atomically records each returned
+Apple submission ID before waiting up to 25 minutes. A timeout or `In Progress`
+result leaves that submission pending and retains its signed product; it does
+not reject it or authorize another submission. `Invalid`/`Rejected` is a failed
+notarization with its bounded log. An upload that fails before returning an ID
+is recorded as `submission_unknown`; reconcile Apple history before proceeding.
+The tool never automatically resubmits an unknown or pending submission.
+
+To resume, dispatch **Signed macOS candidate** (`release.yml`) on `main`, with
+the same `version` and `resume_run_id` set to the completed run that uploaded the
+checkpoint. Leave `resume_run_id` blank only to start a new build. The workflow
+checks the GitHub repository, known workflow identity, main-dispatch event, exact
+source SHA, run ID and artifact name before accepting those inputs. The selected
+run must be complete, and **its source SHA must equal the new dispatch SHA**:
+main must remain at that commit for this initial recovery path. An older
+pre-checkpoint run has no recoverable product merely because Apple has its ID.
+
+The trusted checked-out tooling validates the bounded checkpoint, every product
+size/hash, safe app ZIP paths/symlinks, actual signing team, bundle/package
+version and universal executable slices. It executes no artifact code during
+credential import or recovery. It waits on the original app/package/DMG IDs,
+requires Apple's `Accepted` result, checks available notary-log artifact binding,
+and staples/verifies working copies before continuing. Installer acceptance
+still runs only after signing-state cleanup. Candidate-only publication and all
+remaining release-acceptance requirements remain in force.
+
 `packaging/runtime-lock.json` pins python-build-standalone release 20261110,
 CPython 3.13.18, both architecture URLs and SHA-256 digests verified from that
 upstream release. The build bundles and signs all runtime Mach-O files. Release
