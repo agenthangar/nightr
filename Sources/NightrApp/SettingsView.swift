@@ -5,12 +5,12 @@ import NightrCore
 import NightrController
 import NightrPlatform
 
-private extension NightrSettingsSection {
-    var symbol: String { switch self { case .general: return "gearshape"; case .protection: return "moon"; case .connectivity: return "wifi"; case .advanced: return "slider.horizontal.3" } }
-}
-
 struct SettingsView: View {
-    @ObservedObject var model: AppModel
+    @Binding var section: NightrSettingsSection
+    let status: ControllerStatus?
+    let store: SettingsStore?
+    let initialDraft: NightrCore.Settings?
+    let apply: (NightrCore.Settings) async throws -> Void
     let close: () -> Void
     @State private var draft = NightrCore.Settings()
     @State private var original = NightrCore.Settings()
@@ -23,34 +23,45 @@ struct SettingsView: View {
     @State private var conditionsEdited = false
     @State private var guidance = false
     @State private var saving = false
+    @State private var pendingLoginRemoval = false
+    @State private var savedApprovalNotice = false
     @StateObject private var numbers = NumericDrafts()
     @FocusState private var saveFocused: Bool
+    init(section: Binding<NightrSettingsSection>, status: ControllerStatus?, store: SettingsStore? = nil,
+         initialDraft: NightrCore.Settings? = nil, apply: @escaping (NightrCore.Settings) async throws -> Void = { _ in }, close: @escaping () -> Void = {}) {
+        _section = section; self.status = status; self.store = store; self.initialDraft = initialDraft
+        self.apply = apply; self.close = close
+        if let initialDraft { _draft = State(initialValue: initialDraft); _original = State(initialValue: initialDraft); _loaded = State(initialValue: true) }
+    }
     var body: some View {
         VStack(spacing: 0) {
-            HStack { Text("Nightr Settings").font(.headline); Spacer() }.padding(18)
-            Picker("Section", selection: $model.presentation.section) {
-                ForEach(NightrSettingsSection.allCases) { item in Label(item.rawValue, systemImage: item.symbol).tag(item) }
-            }.pickerStyle(.segmented).padding(.horizontal, 18).padding(.bottom, 14)
+            SettingsToolbar(selection: $section).disabled(saving)
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    switch model.presentation.section {
+                    switch section {
                     case .general: general
                     case .protection: protection
                     case .connectivity: connectivity
                     case .advanced: advanced
                     }
-                }.font(.system(size: 15)).padding(20).frame(maxWidth: .infinity, alignment: .leading)
+                }.font(.system(size: 15)).padding(.horizontal, 26).padding(.vertical, 16).frame(maxWidth: .infinity, alignment: .leading)
             }
+            .disabled(saving)
             Divider()
             if let error { Text(error).font(.system(size: 13)).foregroundStyle(.red).textSelection(.enabled).padding(.horizontal, 18).padding(.top, 10) }
             HStack {
-                Button("Reset") { draft = NightrCore.Settings(); credential = .unchanged; conditionsEdited = false; networkSecurity = nil; error = nil; numbers.reset() }
-                Spacer()
-                Button("Cancel") { credential = .unchanged; close() }.keyboardShortcut(.cancelAction)
-                Button(error == nil ? "Save" : "Retry Save") { save() }.keyboardShortcut(.defaultAction).focused($saveFocused).disabled(saving || !loaded || !numbers.invalid.isEmpty)
-            }.padding(18)
+                Button("Reset") { draft = NightrCore.Settings(); credential = .unchanged; conditionsEdited = false; networkSecurity = nil; error = nil; numbers.reset() }.tint(.primary).disabled(saving)
+                Text("Changes stay pending until Save.").font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer(minLength: 10)
+                Button("Cancel") { credential = .unchanged; close() }.tint(.primary).disabled(saving).keyboardShortcut(.cancelAction)
+                Button { Task { await save() } } label: {
+                    Text(error == nil ? "Save" : "Retry Save").foregroundColor(Color(red: 0.15, green: 0.11, blue: 0.04))
+                }.buttonStyle(.borderedProminent).tint(.nightrButtonAmber).keyboardShortcut(.defaultAction).focused($saveFocused).disabled(saving || !loaded || !numbers.invalid.isEmpty)
+            }.padding(.horizontal, 20).padding(.vertical, 14)
         }.frame(width: 600, height: 540)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .tint(.nightrAmber)
         .environmentObject(numbers)
         .onAppear(perform: load)
         .sheet(isPresented: $chooser) {
@@ -58,11 +69,14 @@ struct SettingsView: View {
                 draft.hotspotSSID = ssid; credential = edit; networkSecurity = security
             }
         }
+        .alert("Login setting saved", isPresented: $savedApprovalNotice) {
+            Button("OK") { close() }
+        } message: { Text(DesktopSetup.approvalGuidance) }
         .alert("Auto-join iPhone hotspot: Not checked", isPresented: $guidance) {
             Button("Open Wi-Fi settings") { DesktopSetup.systemWiFi() }
             Button("Close", role: .cancel) {}
         } message: {
-            Text("Nightr has not read this macOS setting. Check System Settings → Wi-Fi → Ask to join hotspots. Instant Hotspot needs eligible nearby devices on the same Apple Account or Family Sharing with Wi-Fi and Bluetooth. Automatic joining requires macOS Tahoe 26 or later. Saved Wi-Fi fallback is separate.")
+            Text("Not checked. Auto-join controls how your Mac joins an eligible iPhone hotspot. Review it in System Settings → Wi-Fi → Ask to join hotspots.")
         }
     }
     private var general: some View {
@@ -74,17 +88,18 @@ struct SettingsView: View {
             }
             Divider()
             Text("Power helper").fontWeight(.semibold)
-            Text(model.status?.sample.setupReady == true ? "Ready" : "Authorization required for closed-lid protection")
+            Text(status.map { $0.sample.setupReady ? "Ready" : "Authorization required for closed-lid protection" } ?? "Not checked")
             Button("Set up Nightr…") { do { try DesktopSetup.complete() } catch { self.error = error.localizedDescription } }
             hint("Setup authorizes the signed helper and registers your saved login preference. Saving preferences does not install the helper.")
         }
     }
     private var protection: some View {
-        VStack(alignment: .leading, spacing: 13) {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Keep Mac awake").fontWeight(.semibold)
             Picker("Keep Mac awake", selection: $draft.forever) {
                 Text("Automatically").tag(false)
                 Text("Until I stop").tag(true)
-            }.pickerStyle(.radioGroup)
+            }.pickerStyle(.radioGroup).labelsHidden()
             if !draft.forever {
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle("Agent is active", isOn: condition(\.agent))
@@ -112,31 +127,31 @@ struct SettingsView: View {
         }
     }
     private var connectivity: some View {
-        VStack(alignment: .leading, spacing: 13) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Connection").fontWeight(.semibold)
             HStack {
                 Image(systemName: "wifi")
-                Text(model.status?.state.internet.rawValue.capitalized ?? "Not checked")
+                Text(GUIProtectionSummary(status: status).internet)
                 Spacer()
                 Text("Observed").font(.system(size: 11)).foregroundStyle(.secondary)
             }.padding(10).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 5))
-            if let outage = model.status?.state.outage {
-                hint(model.status?.verificationEligible == true ? "\(outage.consumed) of \(outage.capturedLimit) attempts used · still checking internet" : "Internet checks are paused.")
+            if let outage = status?.state.outage {
+                hint(status?.verificationEligible == true ? "\(outage.consumed) of \(outage.capturedLimit) attempts used · still checking internet" : "Internet checks are paused.")
             }
             Divider()
             Text("Hotspot fallback").fontWeight(.semibold)
             Toggle("Use saved hotspot", isOn: $draft.hotspot)
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("Hotspot").frame(width: 92, alignment: .leading)
+                    Text("Hotspot").frame(width: 115, alignment: .leading)
                     Text(draft.hotspotSSID.isEmpty ? "None selected" : draft.hotspotSSID).lineLimit(1).help(draft.hotspotSSID)
                     Spacer(); Button("Choose…") { chooser = true }
                 }
-                HStack { Text("Try after").frame(width: 92, alignment: .leading); NumericInput(key: "hotspotAfter", value: $draft.hotspotAfter, range: 0...2147483647).frame(width: 78); Text("seconds") }
+                HStack { Text("Try after").frame(width: 115, alignment: .leading); NumericInput(key: "hotspotAfter", value: $draft.hotspotAfter, range: 0...2147483647).frame(width: 78); Text("seconds") }
                 HStack { Text("Total attempts").frame(width: 115, alignment: .leading); NumericInput(key: "hotspotAttempts", value: $draft.hotspotAttempts, range: 1...10).frame(width: 52) }
                 hint("Internet checks continue after the attempt limit.")
             }.padding(.leading, 18).disabled(!draft.hotspot)
-            if model.status?.state.outage?.repairRequired == .missingCredential, !draft.hotspotSSID.isEmpty {
+            if status?.state.outage?.repairRequired == .missingCredential, !draft.hotspotSSID.isEmpty {
                 Button("Authorize hotspot access…") {
                     do { try KeychainCredentials().repairAccess(ssid: draft.hotspotSSID); error = nil }
                     catch { self.error = "Hotspot access was not authorized. Unlock Keychain and retry." }
@@ -153,7 +168,7 @@ struct SettingsView: View {
         }
     }
     private var advanced: some View {
-        VStack(alignment: .leading, spacing: 13) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Automatic checks").fontWeight(.semibold)
             duration("Check every", value: $draft.every, slider: 1...300, full: 1...3600)
             hint("How often to check the conditions selected in Protection.")
@@ -186,35 +201,61 @@ struct SettingsView: View {
     private func load() {
         guard !loaded else { return }
         do {
-            expected = try? Data(contentsOf: model.store.url)
-            draft = try model.store.load(); original = draft; loaded = true
+            if let initialDraft { draft = initialDraft }
+            else if let store { expected = try? Data(contentsOf: store.url); draft = try store.load() }
+            original = draft; loaded = true
         } catch { self.error = error.localizedDescription }
     }
-    private func save() {
+    private func save() async {
+        guard let store, !saving else { return }
+        saving = true
+        defer { saving = false }
+        var registration: DesktopRegistrationReceipt?
+        var committed = false
         do {
             guard numbers.invalid.isEmpty else { throw SettingsError.invalid("Correct the highlighted integer fields before saving.") }
             try draft.validate()
             guard draft.forever || !conditionsEdited || draft.agent || draft.internet else { throw SettingsError.invalid("Select one, or choose Until I stop.") }
-            // Login authorization belongs to setup; a user-intended preference change may
-            // register/unregister it, and a failure leaves config/credentials untouched.
-            if draft.launchAtLogin != original.launchAtLogin { try DesktopSetup.login(enabled: draft.launchAtLogin) }
+            let enabling = draft.launchAtLogin && !original.launchAtLogin
+            let disabling = !draft.launchAtLogin && (original.launchAtLogin || pendingLoginRemoval)
+            if enabling { registration = try DesktopSetup.login(enabled: true) }
+            var committedBytes: Data?
             do {
                 try CredentialTransaction(store: KeychainCredentials()).commit(edit: credential) {
                     if let networkSecurity {
                         try NetworkSecurityStore().replacing(ssid: draft.hotspotSSID, security: networkSecurity) {
-                            try model.store.save(draft, expected: expected)
+                            committedBytes = try store.save(draft, expected: expected)
                         }
-                    } else { try model.store.save(draft, expected: expected) }
+                    } else { committedBytes = try store.save(draft, expected: expected) }
                 }
             } catch {
-                if draft.launchAtLogin != original.launchAtLogin { try? DesktopSetup.login(enabled: original.launchAtLogin) }
-                throw error
+                let originalError = error
+                if let registration {
+                    do { try registration.rollback() }
+                    catch { throw DesktopServiceError(originalError.localizedDescription + " " + error.localizedDescription) }
+                }
+                throw originalError
             }
-            credential = .unchanged
-            model.command(.applySettings, settings: draft)
-            close()
-        } catch { self.error = error.localizedDescription; saveFocused = true }
+            committed = true
+            pendingLoginRemoval = disabling
+            credential = .unchanged; networkSecurity = nil
+            original = draft; expected = committedBytes
+            try await apply(draft)
+            if pendingLoginRemoval {
+                _ = try DesktopSetup.login(enabled: false)
+                pendingLoginRemoval = false
+            }
+            error = nil
+            if registration?.pending.isEmpty == false { savedApprovalNotice = true }
+            else { close() }
+        } catch {
+            if committed || pendingLoginRemoval {
+                self.error = "Settings saved; " + (pendingLoginRemoval ? "login removal incomplete. " : "controller update incomplete. ") + error.localizedDescription
+            } else { self.error = error.localizedDescription }
+            saveFocused = true
+        }
     }
+
 }
 
 @MainActor final class NumericDrafts: ObservableObject {

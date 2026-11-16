@@ -30,6 +30,7 @@ var targets: [Target] = [
     .testTarget(name: "NightrCoreTests", dependencies: ["NightrCore", "NightrController", "NightrTestProcess"], path: "native-tests/NightrCoreTests")
 ]
 #if os(macOS)
+targets.append(.testTarget(name: "NightrPresentationTests", dependencies: ["NightrApp", "NightrCore"], path: "native-tests/NightrPresentationTests"))
 let helperInfo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("packaging/helper-Info.plist").path
 products.append(.executable(name: "NightrPowerHelper", targets: ["NightrPowerHelper"]))
 products.append(.executable(name: "NightrInstallerGuard", targets: ["NightrInstallerGuard"]))

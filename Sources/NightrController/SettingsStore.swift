@@ -43,7 +43,7 @@ public struct SettingsStore: Sendable {
         return try JSONDecoder().decode(Settings.self, from: Data(contentsOf: url))
     }
     /// Optimistic conflict detection preserves existing linked legacy configurations.
-    public func save(_ settings: Settings, expected: Data?) throws {
+    @discardableResult public func save(_ settings: Settings, expected: Data?) throws -> Data {
         try settings.validate()
         let target = url.resolvingSymlinksInPath()
         let current = try? Data(contentsOf: target)
@@ -60,5 +60,6 @@ public struct SettingsStore: Sendable {
             throw SettingsError.invalid("config changed while editing; reopen Settings")
         }
         guard rename(temporary.path, target.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
+        return bytes
     }
 }

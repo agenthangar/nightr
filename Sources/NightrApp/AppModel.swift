@@ -11,7 +11,7 @@ import NightrPlatform
 @MainActor final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
     @Published var status: ControllerStatus?
     @Published var error: String?
-    @Published var presentation = GUIPresentationState(headless: CommandLine.arguments.contains("--controller-only"))
+    @Published var presentation = GUIPresentationState(headless: GUILaunchConfiguration(arguments: CommandLine.arguments).headless)
     private var settingsRequests: GUISettingsNotificationReceiver?
     private var settingsWindow: NSWindow?
     private var service: ControllerService?
@@ -38,10 +38,13 @@ import NightrPlatform
                 let status = SMAppService.daemon(plistName: "ai.nightr.powerhelper.plist").status
                 if status == .enabled { exit(0) }
                 FileHandle.standardError.write(Data("Complete Nightr helper approval in System Settings → Login Items.\n".utf8)); exit(2)
-            } catch { FileHandle.standardError.write(Data("Nightr helper authorization failed. Open Nightr setup to repair.\n".utf8)); exit(1) }
+            } catch {
+                FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
+                exit(SMAppService.daemon(plistName: "ai.nightr.powerhelper.plist").status == .requiresApproval ? 2 : 1)
+            }
         }
         Task {
-            if GUIStartupMode(arguments: CommandLine.arguments) == .presentation {
+            if GUILaunchConfiguration(arguments: CommandLine.arguments).startup == .presentation {
                 await refresh()
                 beginPolling()
             } else { _ = await boot(initialLaunch: true) }
@@ -67,7 +70,7 @@ import NightrPlatform
     func openSettings() {
         promotePresentation()
         if let settingsWindow { settingsWindow.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
-        let view = SettingsView(model: self) { [weak self] in self?.settingsWindow?.close(); self?.settingsWindow = nil }
+        let view = SettingsHost(model: self) { [weak self] in self?.settingsWindow?.close(); self?.settingsWindow = nil }
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
         window.title = "Nightr Settings"; window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false; window.delegate = self
@@ -83,7 +86,7 @@ import NightrPlatform
         connecting = connection
         let connected = await connection.value
         connecting = nil
-        if initialLaunch && CommandLine.arguments.contains("--controller-only") && service == nil {
+        if initialLaunch && GUILaunchConfiguration(arguments: CommandLine.arguments).exitsAfterConnectingToExistingOwner && service == nil {
             exit(connected ? 0 : 1)
         }
         beginPolling()
@@ -165,14 +168,21 @@ import NightrPlatform
             } catch { self.error = error.localizedDescription }
         }
     }
-    var label: String {
-        guard let status else { return "Unavailable" }
-        if status.holding { return "On" }
-        if !status.state.desiredEnabled { return "Off" }
-        if status.state.internet == .checking { return "Recovering" }
-        if status.state.pause.map({ [PauseReason.setup, .ownership, .crashLimit].contains($0) }) == true { return "Error" }
-        return "Paused"
+    /// Settings reconciliation must finish before removing a login agent that
+    /// may be this process. This path never bootstraps an absent controller.
+    func applySettingsForSave(_ settings: NightrCore.Settings) async throws {
+        do {
+            guard let response = try await controllerCommands.request(.init(command: .applySettings, settings: settings)) else {
+                throw IPCError.invalid("Controller returned no settings response.")
+            }
+            if let message = response.error { throw IPCError.invalid(message) }
+            guard response.status != nil else { throw IPCError.invalid("Controller returned no settings status.") }
+            status = response.status; error = nil
+        } catch is ControllerUnavailableError {
+            // Durable settings are sufficient when no owner exists.
+        }
     }
+    var label: String { GUIProtectionSummary(status: status, error: error).label }
     func quit() {
         startIntent.cancel()
         Task {
@@ -190,19 +200,44 @@ import NightrPlatform
 }
 
 
-enum DesktopSetup {
+@MainActor enum DesktopSetup {
     static func notifications() async throws {
         _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
     }
     static func complete() throws {
         try helper()
-        try login(enabled: SettingsStore().load().launchAtLogin)
+        let receipt = try login(enabled: SettingsStore().load().launchAtLogin)
+        if !receipt.pending.isEmpty { throw DesktopServiceError(approvalGuidance) }
     }
-    static func helper() throws { try SMAppService.daemon(plistName: "ai.nightr.powerhelper.plist").register() }
-    static func login(enabled: Bool) throws {
-        if enabled { try SMAppService.agent(plistName: "ai.nightr.agent.plist").register() }
-        else { try SMAppService.agent(plistName: "ai.nightr.agent.plist").unregister() }
+    static let approvalGuidance = "Nightr is registered and waiting for approval. Review System Settings → General → Login Items."
+    static func helper() throws {
+        var receipt = DesktopRegistrationReceipt()
+        try receipt.ensure(MacDesktopService(name: "Power helper", service: .daemon(plistName: "ai.nightr.powerhelper.plist")))
+        if !receipt.pending.isEmpty { throw DesktopServiceError("Complete Nightr power helper approval in System Settings → General → Login Items.") }
+    }
+    static func login(enabled: Bool) throws -> DesktopRegistrationReceipt {
+        let services = [MacDesktopService(name: "Nightr menu bar app", service: .mainApp),
+                        MacDesktopService(name: "Nightr background controller", service: .agent(plistName: "ai.nightr.agent.plist"))]
+        if enabled { return try DesktopRegistrationReceipt.enable(services) }
+        try DesktopRegistrationReceipt.disable(services)
+        return DesktopRegistrationReceipt()
     }
     static func systemWiFi() { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.wifi-settings-extension")!) }
+}
+@MainActor private final class MacDesktopService: DesktopServiceRegistration {
+    let name: String
+    let service: SMAppService
+    init(name: String, service: SMAppService) { self.name = name; self.service = service }
+    var status: DesktopServiceStatus {
+        switch service.status {
+        case .notRegistered: return .notRegistered
+        case .enabled: return .enabled
+        case .requiresApproval: return .requiresApproval
+        case .notFound: return .unavailable
+        @unknown default: return .unavailable
+        }
+    }
+    func register() throws { try service.register() }
+    func unregister() throws { try service.unregister() }
 }
 #endif

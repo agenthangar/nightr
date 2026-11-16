@@ -27,6 +27,18 @@ public enum GUIStartupMode: Equatable, Sendable {
     }
 }
 
+/// Desktop launches can own or observe the controller while remaining
+/// visible. Only the explicit internal owner mode suppresses presentation.
+public struct GUILaunchConfiguration: Equatable, Sendable {
+    public let startup: GUIStartupMode
+    public let headless: Bool
+    public var exitsAfterConnectingToExistingOwner: Bool { headless && startup == .controller }
+    public init(arguments: [String]) {
+        startup = GUIStartupMode(arguments: arguments)
+        headless = arguments.contains("--controller-only") && startup == .controller
+    }
+}
+
 /// Untrusted distributed notifications accept exactly a UUID and one fixed tab.
 /// Their object is the launched application's PID, scoped to this login session.
 public struct GUISettingsRequest: Equatable, Sendable {
