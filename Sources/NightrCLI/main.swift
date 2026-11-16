@@ -1,6 +1,12 @@
 import Foundation
 import NightrCore
 import NightrController
+import NightrMCP
+import NightrMCPController
+#if os(macOS)
+import Security
+import NightrPowerClient
+#endif
 #if os(macOS)
 import NightrPlatform
 import AppKit
@@ -17,12 +23,14 @@ import Glibc
            nightr start [options]
            nightr stop
            nightr status [--json]
+           nightr mcp
            nightr setup [--check|--cli-only|--direct-updates]
            nightr config [--show|--edit]
            nightr update [--check]
 
     Without a command, Nightr runs in the foreground; Ctrl-C stops protection.
     start runs the shared background controller. status never starts it.
+    mcp serves local MCP over stdio; connecting or disconnecting never starts/stops protection.
     config changes defaults for the next run; app Settings apply at a loop boundary.
 
     Protection: --checks all|agent|internet|none, --require all|none|N
@@ -49,6 +57,15 @@ import Glibc
     static var contents: URL { executable.deletingLastPathComponent().deletingLastPathComponent() }
     static var resources: URL { contents.appendingPathComponent("Resources") }
     static func run(_ arguments: [String]) async throws {
+        // This transport never prints ordinary command output, even for --help.
+        if arguments.first == "mcp" {
+            guard arguments == ["mcp"] else { throw SettingsError.invalid("usage: nightr mcp (stdio only; no options)") }
+            let backend = MCPControllerBackend(operations: MCPControllerOperations(
+                launchController: { try await MCPProduction.launchController() },
+                setupStatus: { await MCPProduction.setupStatus() }))
+            await MCPStdio.run(backend: backend, version: AppBundleVersion.read(infoPlist: contents.appendingPathComponent("Info.plist")) ?? "0.1.0-dev")
+            return
+        }
         if arguments.contains("--help") || arguments == ["-h"] { print(usage); return }
         if arguments == ["--version"] { print(AppBundleVersion.read(infoPlist: contents.appendingPathComponent("Info.plist")) ?? "0.1.0-dev"); return }
         var args = arguments
@@ -331,3 +348,77 @@ import Glibc
     }
 }
 #endif
+
+enum MCPProduction {
+    static func setupStatus() async -> MCPToolResult {
+#if os(macOS)
+        guard let team = signedTeam(), let client = try? SignedPowerClient(teamID: team) else { return setupUnknown }
+        defer { client.invalidate() }
+        // status is bounded by SignedPowerClient. No sample(), activity collection,
+        // display actions, authorization, helper installation or power lease.
+        let reply = try? await withCheckedThrowingContinuation { continuation in client.status { continuation.resume(with: $0) } }
+        guard let reply else { return setupUnknown }
+        return .init(reply.restorationBlocked ? "Power helper restoration needs attention." : "Signed power helper is ready. No protection was started.",
+                     data: ["scope": .string("shared_per_user"), "helperReadiness": .string(reply.restorationBlocked ? "needs_attention" : "ready"),
+                            "restorationBlocked": .bool(reply.restorationBlocked), "guidance": .string("Use nightr setup for explicit machine setup and authorization.")])
+#else
+        return .init("Nightr protection requires macOS 13 or later.", data: ["scope": .string("shared_per_user"), "helperReadiness": .string("unsupported"), "guidance": .string("Use Nightr on a supported Mac. No setup or protection was started.")])
+#endif
+    }
+    private static var setupUnknown: MCPToolResult {
+        .init("Signed power helper readiness is unknown. No setup or protection was started.", data: ["scope": .string("shared_per_user"), "helperReadiness": .string("unknown"), "guidance": .string("Nightr requires macOS 13 or later and a signed canonical installation. Run nightr setup explicitly to repair readiness.")])
+    }
+    static func launchController() async throws {
+#if os(macOS)
+        // Only explicit Start reaches this path. Never execute adjacent worktree code.
+        let app = URL(fileURLWithPath: "/Applications/Nightr.app")
+        let binary = app.appendingPathComponent("Contents/MacOS/NightrApp")
+        for path in [app, app.appendingPathComponent("Contents"), app.appendingPathComponent("Contents/MacOS"), binary] {
+            var info = stat()
+            guard lstat(path.path, &info) == 0, info.st_uid == 0, info.st_mode & 0o022 == 0,
+                  info.st_mode & S_IFMT != S_IFLNK else { throw IPCError.invalid("unsafe canonical controller path") }
+        }
+        let team = signedTeam()
+        guard let team else { throw IPCError.invalid("signed canonical controller required") }
+        var code: SecStaticCode?
+        let expression = try SigningPolicy.requirement(teamID: team, identifiers: ["ai.nightr.app"])
+        var requirement: SecRequirement?
+        guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code,
+              SecRequirementCreateWithString(expression as CFString, [], &requirement) == errSecSuccess,
+              SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures), requirement) == errSecSuccess,
+              FileManager.default.isExecutableFile(atPath: binary.path) else { throw IPCError.invalid("canonical controller signature is invalid") }
+        let process = Process(); process.executableURL = binary; process.arguments = ["--controller-only"]
+        process.standardInput = FileHandle.nullDevice; process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+        try process.run()
+        for _ in 0..<50 {
+            try Task.checkCancellation()
+            do {
+                let response = try ControllerClient().request(.init(command: .status))
+                guard response.error == nil, response.status != nil else { throw IPCError.invalid("controller status unavailable") }
+                return
+            } catch is ControllerUnavailableError { /* Only absence permits waiting. */ }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        throw IPCError.invalid("controller did not become ready")
+#else
+        throw IPCError.invalid("monitoring requires macOS 13 or later")
+#endif
+    }
+#if os(macOS)
+    private static func signedTeam() -> String? {
+        var code: SecCode?, staticCode: SecStaticCode?, info: CFDictionary?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
+              SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
+              SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let values = info as? [String: Any],
+              let identifier = values[kSecCodeInfoIdentifier as String] as? String,
+              ["ai.nightr.controller", "ai.nightr.app"].contains(identifier),
+              let team = values[kSecCodeInfoTeamIdentifier as String] as? String,
+              let expression = try? SigningPolicy.requirement(teamID: team, identifiers: [identifier]) else { return nil }
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(expression as CFString, [], &requirement) == errSecSuccess,
+              SecCodeCheckValidity(code, [], requirement) == errSecSuccess else { return nil }
+        return team
+    }
+#endif
+}

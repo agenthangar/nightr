@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "nightr",
+  "version": "0.1.0",
+  "description": "Inspect and explicitly control Nightr's shared Mac keep-awake protection.",
+  "author": {"name": "AgentHangar"},
+  "repository": "https://github.com/agenthangar/nightr",
+  "license": "MIT"
+}

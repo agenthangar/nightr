@@ -95,6 +95,51 @@ controllers that cannot be safely quiesced. An incomplete installation transacti
 blocks new protection until a trusted installation repair succeeds. A regular
 update does not acquire a previously absent app.
 
+## MCP server
+
+`nightr mcp` runs the native local stdio server. It accepts no options or extra
+arguments and reserves stdout for newline-delimited JSON-RPC; diagnostics use
+stderr. Installed plugins invoke the canonical prebuilt native binary directly.
+The source-only zsh monitor does not implement MCP. See [plugin setup](plugins.md).
+
+The server supports modern MCP `2026-07-28`, with per-request protocol version
+and client capabilities in `params._meta` and `server/discover`, plus legacy MCP
+`2025-11-25` using `initialize` and `notifications/initialized`. Only the tools
+capability is advertised. Every tool accepts an empty object, with no arbitrary
+commands, paths, configuration edits, credentials or privileged setup operations.
+
+| Tool | Effect |
+| --- | --- |
+| `nightr_status` | Read shared observed protection, pause, internet, battery and captured hotspot budget. Unavailable means unknown, not Off. |
+| `nightr_config` | Read saved next-run policy and a separate active policy when available. Network names and credentials are omitted. |
+| `nightr_setup_status` | Bounded signed-helper readiness query; no authorization, installation, power lease, app launch or activity scan. |
+| `nightr_start` | Explicit Start with saved defaults; may bootstrap the signed canonical controller. Existing conflicts and safety checks apply. |
+| `nightr_stop` | Durable shared Off, including offline recovery without valid preferences. Unsafe endpoints still fail closed. |
+| `nightr_hotspot_retry_now` | Advance a remaining attempt in the current captured budget when eligible. |
+| `nightr_hotspot_try_again` | Explicit new bounded cycle after exhaustion, using running settings. |
+| `nightr_hotspot_skip` | Skip the current fallback cycle; eligible independent internet checks continue. |
+
+The app, CLI and every MCP client share one per-user controller. Start and Stop
+require explicit intent; task completion, cancellation, EOF and disconnect never
+change enabled intent. Start is not idempotent: it refreshes recovery state. A
+timed-out or cancelled mutation may have occurred. Read status before deciding
+what to do next; never automatically repeat Start or hotspot actions. Stop
+confirms durable Off or reports failure, rather than assuming process absence is
+success. Hotspot association never proves internet recovery, and retry actions
+cannot bypass sleep, battery, setup, policy or captured-budget guards.
+
+Input and output frames have a 64 KiB cap and four backend requests may be
+in flight per connection. Cancelled requests retain their slot until their work
+ends, even if the backend cannot cancel it. Notifications receive no response.
+Malformed frames, IDs, arguments and unsupported versions are rejected before
+tool dispatch. A failed or blocked stdout closes the connection; the server
+exits promptly on EOF without waiting for or undoing a dispatched mutation.
+
+Protocol references: [modern stdio](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio),
+[discovery](https://modelcontextprotocol.io/specification/2026-07-28/server/discover),
+[request and result schema](https://modelcontextprotocol.io/specification/2026-07-28/schema),
+and [legacy lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle).
+
 ## Foreground options and compatibility
 
 Options override saved defaults for that run:

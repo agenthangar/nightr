@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Nightr · MCP planning preview</title>
+<style>
+:root{--bg:#141516;--panel:#1c1d1f;--line:#383a3b;--ink:#ebe7df;--muted:#b8b3a8;--amber:#f2a93b;--cyan:#73d5db;--green:#a7d69a;--mono:"IBM Plex Mono","SFMono-Regular",Consolas,monospace;--sans:"Space Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}main{max-width:1120px;margin:auto;padding:28px 24px 40px}h1,h2,p{margin:0}h1{font-size:26px;font-weight:550;letter-spacing:-.7px}h2{font-size:15px;font-weight:600}p,small{color:var(--muted)}button,select{font:inherit;color:inherit;background:#242527;border:1px solid var(--line);border-radius:6px;padding:7px 11px}button{cursor:pointer}button:hover:enabled{border-color:var(--muted)}button:disabled{color:#96938b;background:#202123;cursor:not-allowed}button.primary{background:var(--amber);border-color:var(--amber);color:#241b0e;font-weight:650}button:disabled.primary{background:#393229;border-color:#544735;color:#bcb09b}:focus-visible{outline:2px solid var(--cyan);outline-offset:4px}a{color:var(--cyan)}.banner{border:1px solid #73552b;background:#2b251c;color:var(--amber);padding:10px 14px;border-radius:8px;display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:23px}.banner small{color:#d2b991}.top,.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.top{margin-bottom:20px}.subtitle{margin-top:5px}.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;min-width:0}.card+.card{margin-top:16px}.section{margin-bottom:14px}.notice{font-size:12px;margin:10px 0 16px}.values{margin:0 0 17px}.values div{display:flex;justify-content:space-between;gap:16px;border-bottom:1px solid #ffffff0c;padding:8px 0}.values dt{color:var(--muted)}.values dd{margin:0;text-align:right}.actions{display:flex;flex-wrap:wrap;gap:8px}.state{font-size:22px;letter-spacing:-.4px}.amber{color:var(--amber)}.cyan{color:var(--cyan)}.green{color:var(--green)}.hint{min-height:20px;font-size:12px;margin-top:9px}.rail{border-left:2px solid var(--cyan);padding:0 0 0 13px;min-height:226px;font:12px/1.65 var(--mono);overflow-wrap:anywhere}.turn{margin-bottom:13px}.who{color:var(--cyan);font-size:11px}.turn p{color:var(--ink)}.turn .reply{color:var(--muted)}.toolbar{display:flex;gap:7px;flex-wrap:wrap;margin-top:15px}.toolbar button{font-size:12px}.tools{display:grid;grid-template-columns:1fr 1fr;gap:7px}.tools button{text-align:left;font-size:13px}.toolnames{margin-top:12px;color:var(--muted);font:11px/1.8 var(--mono);overflow-wrap:anywhere}details{border-top:1px solid var(--line);margin-top:16px;padding-top:12px}summary{cursor:pointer;color:var(--ink);font-weight:550}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#141516;border:1px solid var(--line);padding:12px;border-radius:6px;color:var(--cyan);font:12px/1.65 var(--mono);margin:12px 0}.tabs{display:flex;gap:6px;margin-top:14px}.tabs button[aria-pressed=true]{border-color:var(--amber);color:var(--amber)}.setup-note{font-size:12px;margin-top:12px}.architecture{margin-top:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:12px}.architecture strong{color:var(--ink);font-weight:500}footer{display:flex;gap:16px;flex-wrap:wrap;margin-top:23px;font-size:12px;color:var(--muted)}.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}#result{font-size:12px;min-height:36px;margin-top:12px}select{max-width:100%}label{font-size:12px;color:var(--muted)}
+@media(max-width:760px){main{padding:16px}.grid{grid-template-columns:1fr}.banner{align-items:flex-start;flex-direction:column;gap:3px}.top{align-items:flex-start}.rail{min-height:0}}
+</style>
+</head>
+<body>
+<main>
+ <aside class="banner"><strong>Proposed · simulated preview</strong><small>Local fixtures only. No Mac settings or services change.</small></aside>
+ <header class="top"><div><h1>Nightr for your agents</h1><p class="subtitle">One Mac. One controller. Explicit Start and Stop.</p></div><div><label for="scenario">Scenario </label><select id="scenario">
+ <option value="stopped">Stopped</option><option value="active">Active</option><option value="absent">Controller absent</option><option value="battery">Battery pause</option><option value="setup">Missing setup</option><option value="conflict">Conflicting run</option><option value="exhausted">Hotspot exhausted</option><option value="uncertain">Uncertain reply</option>
+ </select></div></header>
+ <div class="grid">
+  <section>
+   <article class="card">
+    <div class="row"><h2>Shared Mac</h2><span id="connection" class="cyan">Agent connected</span></div>
+    <p class="notice">Start and Stop affect every agent on this Mac.</p>
+    <div id="state" class="state amber" aria-live="polite"></div>
+    <dl class="values" id="values"></dl>
+    <div class="actions"><button id="start" class="primary" data-action="start">Start for this Mac</button><button id="stop" data-action="stop">Stop for this Mac</button></div>
+    <p id="reason" class="hint"></p>
+    <details><summary>Hotspot recovery</summary><p id="budget" class="notice"></p><div class="actions"><button id="retry" data-action="retry">Retry now</button><button id="again" data-action="again">Try again</button><button id="skip" data-action="skip">Skip fallback</button></div><p id="recoveryReason" class="hint"></p><button id="verify" data-action="verify">Simulate verified internet</button></details>
+   </article>
+   <article class="card">
+    <h2>Available tools</h2><p class="notice">Read first. Change protection only when asked.</p>
+    <div class="tools"><button data-action="status">Read status</button><button data-action="config">Read configuration</button><button data-action="setupStatus">Read setup status</button><button data-action="conversation">Play Start → Stop example</button></div>
+    <p id="result" role="status"></p>
+    <details><summary>Tool names · 8 planned</summary><div class="toolnames">nightr_status<br>nightr_config<br>nightr_setup_status<br>nightr_start<br>nightr_stop<br>nightr_hotspot_retry_now<br>nightr_hotspot_try_again<br>nightr_hotspot_skip</div></details>
+   </article>
+  </section>
+  <section>
+   <article class="card">
+    <div class="row section"><h2>Agent conversation</h2><button data-action="clear">Clear</button></div>
+    <div class="rail" id="conversation" role="log" aria-label="Synthetic agent conversation" aria-live="polite"></div>
+    <div class="toolbar"><button id="connect" data-action="connect">Disconnect agent</button><button data-action="complete">Second agent finishes task</button></div>
+    <p class="hint">Connections and task completion leave enabled intent unchanged.</p>
+   </article>
+   <article class="card">
+    <h2>Connect a client</h2><p class="notice">Proposed manual setup · nothing is installed here.</p>
+    <div class="tabs" role="group" aria-label="Client configuration"><button id="codex" aria-pressed="true" data-client="codex">Codex</button><button id="claude" aria-pressed="false" data-client="claude">Claude Code</button></div>
+    <pre id="snippet" aria-label="Client configuration snippet"></pre>
+    <p id="clientNote" class="setup-note"></p>
+    <details><summary>Plugin packaging</summary><p class="setup-note">A portable OpenAI plugin and a Claude-compatible wrapper share the same Nightr skill and native MCP server. The skill asks before global changes and reads status after each action.</p><pre>nightr/
+├── plugin.json
+├── mcp.json
+├── .claude-plugin/plugin.json
+├── .mcp.json
+└── skills/nightr/SKILL.md
+
+server: nightr-native
+transport: stdio · argument: mcp</pre><p class="setup-note">Planned layouts, not downloadable packages. No config writes, passwords, network selection or helper installation tools.</p></details>
+   </article>
+  </section>
+ </div>
+ <div class="architecture"><span><strong>Codex / Claude Code</strong> → native Swift stdio MCP → <strong>shared per-user controller</strong></span><span>Read-only connections · no automatic Start or Stop</span></div>
+ <footer><span>Planning references</span><a href="https://developers.openai.com/plugins/build/plugins" target="_blank" rel="noopener">OpenAI plugins ↗</a><a href="https://code.claude.com/docs/en/plugins/create" target="_blank" rel="noopener">Claude plugins ↗</a><a href="https://modelcontextprotocol.io/specification/2026-07-28" target="_blank" rel="noopener">MCP specification ↗</a><a href="https://github.com/agenthangar/nightr/issues/4" target="_blank" rel="noopener">Issue #4 ↗</a></footer>
+</main>
+<script>
+'use strict';
+// Deliberately self-contained: in-memory fixtures only.
+const fixtures = {
+ stopped:{enabled:false,hold:false,internet:'Verified available',used:0,outage:false},
+ active:{enabled:true,hold:true,internet:'Not verified · checking',used:1,outage:true},
+ absent:{enabled:null,hold:null,internet:'Unknown',used:0,outage:false,controllerAbsent:true},
+ battery:{enabled:true,hold:false,internet:'Checks paused',used:1,outage:true,block:'Battery below 20% · plug in or recharge.'},
+ setup:{enabled:false,hold:false,internet:'Checks paused',used:0,outage:false,block:'Setup incomplete · use Nightr setup manually.'},
+ conflict:{enabled:true,hold:false,internet:'Unknown',used:1,outage:true,block:'Another run has incompatible settings.'},
+ exhausted:{enabled:true,hold:true,internet:'Not verified · checking',used:3,outage:true},
+ uncertain:{enabled:true,hold:false,internet:'Unknown',used:0,outage:false,uncertain:true}
+};
+let s, turns=[], client='codex';
+const $ = id => document.getElementById(id);
+function reset(name='stopped') { s={...fixtures[name],scenario:name,connected:true,limit:3,cycle:1,skipped:false}; $('scenario').value=name; turns=[]; add('Agent','Read Nightr status.', 'Status is read-only. Choose an action below.'); render(); }
+function add(who,text,reply) { turns.push({who,text,reply}); if(turns.length>7)turns.shift(); }
+function allowed(action){
+ if(!s.connected)return false;
+ if(['status','config','setupStatus'].includes(action))return true;
+ if(action==='stop')return true;
+ if(action==='start')return !s.enabled&&!s.block&&!s.uncertain;
+ const safe=s.enabled&&!s.block&&!s.uncertain&&s.outage&&!s.skipped;
+ if(action==='retry')return safe&&s.used<s.limit;
+ if(action==='again')return safe&&s.used===s.limit;
+ if(action==='skip')return safe;
+ if(action==='verify')return s.enabled&&!s.block&&!s.uncertain&&s.outage;
+ return false;
+}
+function observed(){if(s.controllerAbsent)return 'Controller unavailable';if(s.uncertain)return 'Outcome uncertain';if(s.explicitStop)return 'Off · explicitly stopped';if(s.block)return s.scenario==='battery'?'Paused · low battery':s.scenario==='setup'?'Setup needed':'Ownership conflict';return s.enabled?'On · awake hold observed':'Off · explicitly stopped';}
+function intent(){return s.uncertain||s.enabled===null?'Unconfirmed':s.enabled?'On':'Off';}
+function status(){return `${observed()}. Enabled intent: ${intent().toLowerCase()}. Internet: ${s.internet.toLowerCase()}.`;}
+function render(){
+ $('connection').textContent=s.connected?'Agent connected':'Agent disconnected';
+ $('state').textContent=observed();$('state').className='state '+(s.hold&&!s.uncertain?'green':'amber');
+ $('values').replaceChildren();
+ const rows=[['Enabled intent',intent()],['Awake hold',s.uncertain||s.hold===null?'Unconfirmed':s.hold?'Observed':'Not held'],['Internet',s.internet]];
+ for(const [key,val]of rows){const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=key;dd.textContent=val;row.append(dt,dd);$('values').append(row);}
+ for(const action of ['start','stop','retry','again','skip','verify'])$(action).disabled=!allowed(action);
+ for(const action of ['status','config','setupStatus'])document.querySelector(`[data-action="${action}"]`).disabled=!allowed(action);
+ $('reason').textContent=!s.connected?'Reconnect to use tools.':s.uncertain?'Read status before another change.':s.block|| (s.enabled?'Stop releases protection globally.':'Start enables the shared controller.');
+ $('budget').textContent=`Cycle ${s.cycle} · ${s.used} of ${s.limit} attempts used${s.skipped?' · fallback skipped':''}.`;
+ $('recoveryReason').textContent=s.block?'Recovery paused. Budget retained.':!s.enabled?'Start first. Budget retained.':s.skipped?'Joins cancelled for this outage. Internet checks continue.':!s.outage?'No current outage.':s.used===s.limit?'Exhausted. Try again opens a new bounded cycle.':'Retry now uses one remaining attempt; it does not prove internet.';
+ $('connect').textContent=s.connected?'Disconnect agent':'Connect agent';
+ $('conversation').replaceChildren();for(const turn of turns){const el=document.createElement('div');el.className='turn';const who=document.createElement('div'),text=document.createElement('p'),reply=document.createElement('p');who.className='who';who.textContent=turn.who;text.textContent=turn.text;reply.className='reply';reply.textContent=turn.reply;el.append(who,text,reply);$('conversation').append(el);}
+}
+function action(name){
+ if(name==='conversation'){reset();action('status');action('start');action('status');action('stop');return;}
+ if(name==='clear'){turns=[];render();return;}
+ if(name==='connect'){const before=intent().toLowerCase();s.connected=!s.connected;add('Connection',s.connected?'Agent connected.':'Agent disconnected.',`Enabled intent stays ${before}.`);render();return;}
+ if(name==='complete'){add('Second agent','Task finished.',`Enabled intent stays ${intent().toLowerCase()}. No Stop requested.`);render();return;}
+ if(!allowed(name))return;
+ let text='',reply='';
+ if(name==='status'){if(s.uncertain){s.uncertain=false;s.hold=true;}text='Read status.';reply=status();}
+ if(name==='config'){text='Read configuration.';reply='Automatically · agent active + internet available · battery cutoff 20% · hotspot limit 3. Read-only.';}
+ if(name==='setupStatus'){text='Read setup status.';reply=s.scenario==='setup'?'Helper not ready. Complete setup manually in Nightr.':'Helper ready. Nothing launched or changed.';}
+ if(name==='start'){const bootstrap=s.controllerAbsent;s.enabled=true;s.hold=true;s.controllerAbsent=false;s.explicitStop=false;text='User: Start Nightr for this Mac.';reply=bootstrap?'Shared controller started explicitly. Observed: enabled; awake hold active.':'Start accepted. Observed: shared controller enabled; awake hold active.';}
+ if(name==='stop'){s.enabled=false;s.hold=s.controllerAbsent?null:false;s.uncertain=false;s.explicitStop=true;s.internet='Checks paused';text='User: Stop Nightr for this Mac.';reply=s.controllerAbsent?'Durable Stop saved. Enabled intent is off; controller remains unavailable. Awake hold unconfirmed.':'Stopped globally. Awake hold released; joins and checks cancelled. Intent stays off.';}
+ if(name==='retry'){s.used++;text='User: Retry hotspot now.';reply=`Attempt ${s.used} of ${s.limit} consumed. Join did not verify internet. Checks continue.`;}
+ if(name==='again'){s.cycle++;s.used=1;text='User: Try hotspot again.';reply=`New bounded cycle ${s.cycle}; attempt 1 of ${s.limit} consumed. Internet still unverified.`;}
+ if(name==='skip'){s.skipped=true;text='User: Skip hotspot fallback.';reply='Current fallback cancelled. No more joins this outage; independent internet checks continue.';}
+ if(name==='verify'){s.internet='Verified available';s.outage=false;s.used=0;s.skipped=false;text='Simulation: independent internet check passed.';reply='Fresh internet verification clears the outage ledger. No agent session reconnection claimed.';}
+ $('result').textContent=reply;add(name==='verify'?'Workbench':'Agent',text,reply);render();
+}
+function showClient(name){client=name;for(const id of ['codex','claude'])$(id).setAttribute('aria-pressed',String(id===name));
+ $('snippet').textContent=name==='codex'?'# ~/.codex/config.toml\n[mcp_servers.nightr]\ncommand = "/Applications/Nightr.app/Contents/MacOS/nightr-native"\nargs = ["mcp"]':'// .mcp.json · project configuration\n{\n  "mcpServers": {\n    "nightr": {\n      "command": "/Applications/Nightr.app/Contents/MacOS/nightr-native",\n      "args": ["mcp"]\n    }\n  }\n}';
+ $('clientNote').textContent=name==='codex'?'Proposed Codex config. Add manually after installing a compatible Nightr build.':'Proposed Claude Code config. Review project trust and tool permissions in the client.';
+}
+document.addEventListener('click',event=>{const button=event.target.closest('button');if(!button||button.disabled)return;if(button.dataset.action)action(button.dataset.action);if(button.dataset.client)showClient(button.dataset.client);});
+ $('scenario').addEventListener('change',event=>{reset(event.target.value);$('result').textContent='';});
+reset();showClient('codex');
+</script>
+</body>
+</html>
