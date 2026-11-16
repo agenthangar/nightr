@@ -131,7 +131,7 @@ def accept(args, report):
             installer.verify_package(package, args.team_id)
             for stage in ['freshInstall', 'samePackageReinstall']:
                 report[stage] = 'started'
-                run(['/usr/bin/sudo', '-n', '/usr/sbin/installer', '-pkg', package, '-target', '/'], timeout=600)
+                run(['/usr/bin/sudo', '-n', '/usr/sbin/installer', '-verboseR', '-pkg', package, '-target', '/'], timeout=600)
                 verify_installation(args.team_id, args.version)
                 report[stage] = 'passed'
     report['status'] = 'passed_limited_acceptance'

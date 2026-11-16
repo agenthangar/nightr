@@ -64,7 +64,7 @@ def test_acceptance_installs_real_package_twice_and_keeps_failure_state(tmp_path
     def run(command, **kwargs):
         events.append('install' if command[0] == '/usr/bin/sudo' else 'verify release')
         if command[0] == '/usr/bin/sudo':
-            assert command == ['/usr/bin/sudo', '-n', '/usr/sbin/installer', '-pkg', tmp_path / 'Nightr.pkg', '-target', '/']
+            assert command == ['/usr/bin/sudo', '-n', '/usr/sbin/installer', '-verboseR', '-pkg', tmp_path / 'Nightr.pkg', '-target', '/']
     monkeypatch.setattr(acceptance, 'run', run)
     calls = []
     def verify(*args):
