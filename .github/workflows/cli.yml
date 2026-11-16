@@ -31,5 +31,7 @@ jobs:
         run: swift --version | tee /tmp/swift-version && grep -F 'Swift version 6.2' /tmp/swift-version
       - name: Pure controller, network and lease tests
         run: swift test
+      - name: Install protocol check runner
+        run: apt-get update && apt-get install -y --no-install-recommends python3
       - name: MCP protocol and stdio lifecycle checks
         run: python3 scripts/check_mcp.py --binary .build/debug/nightr-native
