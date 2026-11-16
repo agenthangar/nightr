@@ -191,3 +191,61 @@ def test_candidate_workflow_has_no_publish_authority_and_pins_dispatch():
     upload = next(step for step in steps if step.get('uses', '').startswith('actions/upload-artifact@'))
     assert upload['if'] == 'always()'
     assert all(value in upload['with']['name'] for value in ['inputs.version', 'github.sha', 'github.run_id'])
+
+
+@pytest.mark.parametrize('install_timeout', [False, True])
+@pytest.mark.parametrize('diagnostic', ['captured', 'failed', 'timeout'])
+def test_installer_failure_captures_bounded_log_without_replacing_original(tmp_path, monkeypatch, install_timeout, diagnostic):
+    events = []
+    original = subprocess.TimeoutExpired('installer', 600) if install_timeout else RuntimeError('original installer failure')
+    monkeypatch.setattr(acceptance, 'require_disposable', lambda opt: events.append('gate'))
+    monkeypatch.setattr(acceptance, 'require_fresh', lambda: events.append('fresh'))
+    @contextlib.contextmanager
+    def mount(*args):
+        events.append('mount')
+        try: yield tmp_path
+        finally: events.append('detach')
+    monkeypatch.setattr(acceptance.installer, 'mounted_dmg', mount)
+    monkeypatch.setattr(acceptance.installer, 'verify_package', lambda *a: events.append('package verified'))
+    def run(command, **kwargs):
+        if command[0] != '/usr/bin/sudo':
+            events.append('artifact verified')
+            return SimpleNamespace(stdout='')
+        if command[2] == '/usr/sbin/installer':
+            events.append('installer failed')
+            raise original
+        events.append('diagnostic')
+        assert command == ['/usr/bin/sudo', '-n', '/usr/bin/tail', '-n', '400', '/var/log/install.log']
+        assert kwargs == {'timeout': 15}
+        if diagnostic == 'failed': raise RuntimeError('diagnostic unavailable')
+        if diagnostic == 'timeout': raise subprocess.TimeoutExpired('tail', 15, output=b'x' * 20000)
+        return SimpleNamespace(stdout='older records' * 2000 + '\nuseful guard diagnostic')
+    monkeypatch.setattr(acceptance, 'run', run)
+    monkeypatch.setattr(acceptance, 'verify_installation', lambda *a: pytest.fail('failed installer must not continue verification'))
+    args = SimpleNamespace(disposable_github_runner=True, dmg=tmp_path / 'signed.dmg', team_id='TEAM123456', version='0.1.0')
+    report = {'status': 'failed'}
+    with pytest.raises(type(original)) as caught:
+        acceptance.accept(args, report)
+    assert caught.value is original
+    assert events == ['gate', 'fresh', 'artifact verified', 'mount', 'package verified', 'installer failed', 'diagnostic', 'detach']
+    assert report['freshInstall'] == 'started' and 'samePackageReinstall' not in report
+    assert len(report['installerLogTail']) <= 16384
+    if diagnostic == 'captured':
+        assert report['installerLogTail'].endswith('useful guard diagnostic')
+        assert 'installerLogDiagnosticError' not in report
+    else:
+        assert 'installerLogDiagnosticError' in report
+        assert report['installerLogTail'] == ('x' * 16384 if diagnostic == 'timeout' else '')
+
+
+@pytest.mark.parametrize('failure', ['gate', 'fresh', 'artifact'])
+def test_diagnostic_sudo_cannot_run_before_acceptance_gates(tmp_path, monkeypatch, failure):
+    def fail(): raise RuntimeError('pre-install refusal')
+    monkeypatch.setattr(acceptance, 'require_disposable', lambda opt: fail() if failure == 'gate' else None)
+    monkeypatch.setattr(acceptance, 'require_fresh', lambda: fail() if failure == 'fresh' else None)
+    def run(command, **kwargs):
+        assert command[0] != '/usr/bin/sudo'
+        fail()
+    monkeypatch.setattr(acceptance, 'run', run)
+    args = SimpleNamespace(disposable_github_runner=True, dmg=tmp_path / 'candidate.dmg', team_id='TEAM123456', version='0.1.0')
+    with pytest.raises(RuntimeError, match='pre-install refusal'): acceptance.accept(args, {})
