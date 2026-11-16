@@ -8,8 +8,11 @@ let statePath = "/Library/Application Support/Nightr"
 let appPath = "/Applications/Nightr.app"
 let guardPath = "/Library/PrivilegedHelperTools/ai.nightr.installguard"
 let markerName = "install-transaction.json"
-func require(_ condition: @autoclosure () throws -> Bool) throws {
-    if try !condition() { throw InstallGuardError.unsafeFile }
+func require(_ condition: @autoclosure () throws -> Bool, function: StaticString = #function, line: UInt = #line) throws {
+    if try !condition() {
+        fputs("Nightr installer guard check failed in \(function):\(line)\n", stderr)
+        throw InstallGuardError.unsafeFile
+    }
 }
 func metadata(_ fd: Int32, uid: uid_t, mode: mode_t, directory: Bool = false) throws {
     var s = stat(); try require(fstat(fd, &s) == 0)
