@@ -3,6 +3,15 @@ import Foundation
 import NightrCore
 @testable import NightrController
 
+private extension ControllerService {
+    // A synchronous actor-isolated disk read cannot interleave with persist().
+    // Reading outside the actor can observe an old inode after atomic rename
+    // unlinks it, which correctly fails StateJournal's single-link safety check.
+    func persistedStateForTest(directory: URL) throws -> ControllerState {
+        try StateJournal.load(directory: directory)
+    }
+}
+
 private actor ForegroundPlatform: ControllerPlatform {
     var releases = 0
     func acquireProtection(settings: Settings) async throws {}
@@ -78,9 +87,11 @@ final class ForegroundTests: XCTestCase {
         } catch {}
         XCTAssertFalse(signal.requested)
         XCTAssertTrue(signal.requiresStopOnFailure)
-        XCTAssertTrue(try StateJournal.load(directory: runtime).desiredEnabled)
+        let persistedStart = try await service.persistedStateForTest(directory: runtime)
+        XCTAssertTrue(persistedStart.desiredEnabled)
         if signal.requiresStopOnFailure { _ = try await StopRecovery.stop(runtimeDirectory: runtime) }
-        XCTAssertFalse(try StateJournal.load(directory: runtime).desiredEnabled)
+        let persistedStop = try await service.persistedStateForTest(directory: runtime)
+        XCTAssertFalse(persistedStop.desiredEnabled)
         await service.shutdown(preserveIntent: true)
         signal.finish()
     }
@@ -145,7 +156,8 @@ final class ForegroundTests: XCTestCase {
         XCTAssertFalse(stopped!.state.desiredEnabled)
         let replacementStatus = await replacement.status()
         XCTAssertFalse(replacementStatus.state.desiredEnabled)
-        XCTAssertFalse(try StateJournal.load(directory: runtime).desiredEnabled)
+        let persistedStop = try await replacement.persistedStateForTest(directory: runtime)
+        XCTAssertFalse(persistedStop.desiredEnabled)
         await replacement.shutdown(preserveIntent: true)
         _ = try await StopRecovery.stop(runtimeDirectory: runtime)
         XCTAssertFalse(try StateJournal.load(directory: runtime).desiredEnabled)
@@ -158,7 +170,8 @@ final class ForegroundTests: XCTestCase {
         let service = try ControllerService(platform: platform, settingsStore: .init(url: root.appendingPathComponent("config.json")), runtimeDirectory: runtime)
         try await service.start()
         _ = await service.request(.init(command: .start))
-        XCTAssertTrue(try StateJournal.load(directory: runtime).desiredEnabled)
+        let persistedStart = try await service.persistedStateForTest(directory: runtime)
+        XCTAssertTrue(persistedStart.desiredEnabled)
         // Move the whole parent aside before obstructing it. A background tick
         // can recreate state.json between unlink and mkdir, but journal writers
         // never recreate the runtime directory. This makes Stop persistence fail
