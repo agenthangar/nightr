@@ -263,6 +263,41 @@ passes. Publication remains deferred until the broader acceptance is complete
 and a reviewed publication path is added. Track that work in
 [issue #3](https://github.com/agenthangar/nightr/issues/3).
 
+### Disposable managed-upgrade acceptance
+
+The separate manual **Signed managed upgrade acceptance** workflow
+(`upgrade-acceptance.yml`) accepts `baseline_run_id` and `final_run_id`: successful
+main-dispatch **Signed macOS candidate** runs for `0.0.0` and `0.1.0` respectively.
+Both candidates must come from the **same source SHA**, and that SHA must be an
+ancestor of the acceptance workflow's exact checked-out main commit. This permits
+new acceptance tooling to validate older retained products without changing the
+notarization checkpoint workflow's stricter same-SHA recovery rule. Keep main
+fixed while any pending checkpoint still requires that rule.
+
+Configure the public repository variable `NIGHTR_TEAM_ID` independently of the
+candidate files; this job has no release environment or signing secrets. The
+fetch step alone receives a read-only GitHub token. It verifies the fixed
+repository/workflow, successful manual main runs, exact artifact names and run
+ownership, bounded downloads, four flat regular-file ZIP entries, passing fresh
+and reinstall reports, manifest identity/team and actual DMG hashes. Downloaded
+casks are never executed. These are retained candidate artifacts, not published
+release acquisition.
+
+On a fresh GitHub-hosted `macos-15` runner, the existing `check_upgrade.py`
+acceptance harness then runs unchanged under its real nonroot UID/HOME and PTY.
+It installs the signed baseline, performs explicit verified direct adoption and
+a real managed `0.0.0` to `0.1.0` update, and checks the resulting signed payload,
+receipt, root marker, private request, owner/cache records and locks. No signing,
+helper/login authorization or protection starts. Public release HTTPS acquisition,
+controller `finish-update`/resume and rollback/reboot recovery remain untested.
+
+The workflow always retains **only** `candidate-provenance.json` and
+`upgrade-acceptance.json`, named with acceptance SHA/run ID, for 14 days. Provenance
+records candidate source SHA separately from workflow SHA, authenticated run and
+artifact IDs, archive/manifest/DMG hashes, available GitHub artifact digests and
+the precise input acceptance results. A fetch failure leaves upgrade acceptance
+`not_started`; a passing report is limited acceptance, not release approval.
+
 ### Resuming slow notarization
 
 Candidate builds retain a separate `nightr-checkpoint-VERSION-SHA-RUN_ID`
