@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+import NightrTestProcess
 #if canImport(Darwin)
 import Darwin
 #else
@@ -83,17 +84,8 @@ final class GlobalUpdateGuardTests: XCTestCase {
         var ready: [Int32] = [0, 0]; var release: [Int32] = [0, 0]
         guard pipe(&ready) == 0, pipe(&release) == 0 else { throw CocoaError(.fileReadUnknown) }
         defer { close(ready[0]); close(ready[1]); close(release[0]); close(release[1]) }
-        var exclusive = record(Int16(F_WRLCK))
-        let child = fork()
+        let child = nightr_test_spawn_lock_owner(updateFD, ready[1], release[0])
         guard child >= 0 else { throw CocoaError(.fileReadUnknown) }
-        if child == 0 {
-            // Only async-signal-safe C calls in this forked XCTest child.
-            var result: UInt8 = fcntl(updateFD, F_SETLK, &exclusive) == 0 ? 1 : 0
-            _ = write(ready[1], &result, 1)
-            var signal: UInt8 = 0
-            _ = read(release[0], &signal, 1)
-            _exit(result == 1 ? 0 : 1)
-        }
         var reaped = false
         defer { if !reaped { _ = kill(child, SIGKILL); var status: Int32 = 0; _ = waitpid(child, &status, 0) } }
         var observation = pollfd(fd: ready[0], events: Int16(POLLIN), revents: 0)

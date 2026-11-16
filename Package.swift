@@ -26,7 +26,8 @@ var targets: [Target] = [
     .executableTarget(name: "NightrCLI", dependencies: ["NightrCore", "NightrController", "NightrPlatform", "NightrMCP", "NightrMCPController", "NightrPowerClient"]),
     .testTarget(name: "NightrPlatformTests", dependencies: ["NightrPlatform", "NightrCore"], path: "native-tests/NightrPlatformTests"),
     .testTarget(name: "NightrPowerTests", dependencies: ["NightrPowerProtocol", "NightrPowerClient"], path: "native-tests/NightrPowerTests"),
-    .testTarget(name: "NightrCoreTests", dependencies: ["NightrCore", "NightrController"], path: "native-tests/NightrCoreTests")
+    .target(name: "NightrTestProcess", path: "native-tests/NightrTestProcess", publicHeadersPath: "include"),
+    .testTarget(name: "NightrCoreTests", dependencies: ["NightrCore", "NightrController", "NightrTestProcess"], path: "native-tests/NightrCoreTests")
 ]
 #if os(macOS)
 let helperInfo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("packaging/helper-Info.plist").path
