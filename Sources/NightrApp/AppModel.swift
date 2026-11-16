@@ -18,6 +18,13 @@ import NightrPlatform
     private var events: MacSystemEvents?
     private var poll: Task<Void, Never>?
     private var connecting: Task<Bool, Never>?
+    private lazy var menuVisibilityFeedback = GUIMenuVisibilityFeedback(
+        read: { [weak self] in self?.presentation.menuVisible ?? false },
+        publish: { [weak self] visible in
+            guard let self else { return }
+            var next = self.presentation; next.menuVisible = visible
+            self.publishPresentation(next)
+        })
     private let startIntent = GUIStartIntent()
     private let controllerCommands = GUIControllerCommands { try ControllerClient().request($0) }
     let store = SettingsStore()
@@ -42,13 +49,23 @@ import NightrPlatform
             if CommandLine.arguments.contains("--hotspot-setup") || CommandLine.arguments.contains("--enable-discovery") { receive(.connectivity) }
         }
     }
+    func menuVisibilityChanged(_ visible: Bool) { menuVisibilityFeedback.receive(visible) }
+    private func publishPresentation(_ next: GUIPresentationState) {
+        if next != presentation { presentation = next }
+    }
+    private func promotePresentation(route: GUISettingsRoute? = nil) {
+        menuVisibilityFeedback.invalidate()
+        var next = presentation
+        if let route { next.receive(route) } else { next.reopen() }
+        publishPresentation(next)
+    }
     func receive(_ route: GUISettingsRoute) {
-        presentation.receive(route)
+        promotePresentation(route: route)
         openSettings()
     }
-    func reopen() { presentation.reopen(); NSApp.activate(ignoringOtherApps: true) }
+    func reopen() { promotePresentation(); NSApp.activate(ignoringOtherApps: true) }
     func openSettings() {
-        presentation.menuVisible = true
+        promotePresentation()
         if let settingsWindow { settingsWindow.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
         let view = SettingsView(model: self) { [weak self] in self?.settingsWindow?.close(); self?.settingsWindow = nil }
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
