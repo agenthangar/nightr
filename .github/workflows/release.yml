@@ -6,8 +6,13 @@ on:
         description: 'Candidate patch version without v (for example 0.1.0); never publishes'
         required: true
         type: string
+      resume_run_id:
+        description: 'Earlier completed candidate run containing the same-source checkpoint; blank starts a build'
+        required: false
+        type: string
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: nightr-signed-candidate
   cancel-in-progress: false
@@ -64,6 +69,17 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           xcodebuild -version
           swift --version
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Fetch and validate exact-source checkpoint provenance
+        if: inputs.resume_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          python3 scripts/notary_checkpoint.py --fetch-run "$RESUME_RUN_ID" --version "$VERSION" --team-id "$NIGHTR_TEAM_ID" --output dist/checkpoint
       - name: Import ephemeral Developer ID identities
         env:
           CERTIFICATE: ${{ secrets.NIGHTR_SIGNING_CERTIFICATE_P12 }}
@@ -86,9 +102,6 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$PASSWORD" "$KEYCHAIN"
           xcrun notarytool store-credentials "$NIGHTR_NOTARY_PROFILE" --key "$RUNNER_TEMP/notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" --keychain "$KEYCHAIN"
           rm -f "$RUNNER_TEMP/signing.p12" "$RUNNER_TEMP/notary.p8"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
       - name: Validate safe unit and extraction contracts
         run: |
           python3 -m pip install -r requirements-dev.txt
@@ -97,7 +110,13 @@ jobs:
       - name: Build, sign, notarize, staple and verify release
         env:
           VERSION: ${{ inputs.version }}
-        run: python3 scripts/build_release.py --version "$VERSION" --output dist
+          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+        run: |
+          if test -n "$RESUME_RUN_ID"; then
+            python3 scripts/build_release.py --version "$VERSION" --output dist --resume-run-id "$RESUME_RUN_ID"
+          else
+            python3 scripts/build_release.py --version "$VERSION" --output dist
+          fi
       - name: Remove ephemeral signing state
         if: always()
         run: |
@@ -124,5 +143,21 @@ jobs:
             dist/nightr-release.json
             dist/nightr.rb
             dist/installer-acceptance.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Retain exact signed notarization checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightr-checkpoint-${{ inputs.version }}-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            dist/checkpoint/checkpoint.json
+            dist/checkpoint/Nightr.zip
+            dist/checkpoint/ai.nightr.installguard
+            dist/checkpoint/Nightr.pkg
+            dist/checkpoint/submitted.dmg
+            dist/checkpoint/app-notary.log
+            dist/checkpoint/package-notary.log
+            dist/checkpoint/dmg-notary.log
           if-no-files-found: warn
           retention-days: 14

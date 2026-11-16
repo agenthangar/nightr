@@ -141,16 +141,6 @@ def test_failed_acceptance_writes_honest_report(tmp_path, monkeypatch):
     assert 'version-changing update' in result['untested']
 
 
-def test_notary_requires_accepted_status_and_logs_submission(monkeypatch, capsys):
-    calls = []
-    def run(*args, **kwargs):
-        calls.append(args)
-        return json.dumps({'id': '01234567-0123-0123-0123-0123456789ab', 'status': 'Invalid'}) if 'submit' in args else 'notary rejection details'
-    monkeypatch.setattr(build, 'run', run)
-    with pytest.raises(RuntimeError, match='Accepted'): build.notarize(Path('Nightr.pkg'), 'profile')
-    assert any('log' in call for call in calls)
-    assert 'notary rejection details' in capsys.readouterr().err
-
 
 def test_build_failure_keeps_stdout_diagnostics(monkeypatch, capsys):
     def run(*a, **kw): raise subprocess.CalledProcessError(1, 'swift', output='compiler diagnostic', stderr='linker diagnostic')
@@ -176,10 +166,10 @@ def test_installed_version_and_pending_marker_fail_before_smoke_commands(monkeyp
 def test_candidate_workflow_has_no_publish_authority_and_pins_dispatch():
     import yaml
     workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
-    assert workflow['permissions'] == {'contents': 'read'}
+    assert workflow['permissions'] == {'contents': 'read', 'actions': 'read'}
     job = workflow['jobs']['candidate']
     assert job['if'] == "github.ref == 'refs/heads/main'"
-    assert job.get('permissions', workflow['permissions']) == {'contents': 'read'}
+    assert job.get('permissions', workflow['permissions']) == {'contents': 'read', 'actions': 'read'}
     steps = job['steps']
     assert steps[0]['with']['ref'] == '${{ github.sha }}'
     # Enforce the actual set of allowed action capabilities; no publication
@@ -187,7 +177,13 @@ def test_candidate_workflow_has_no_publish_authority_and_pins_dispatch():
     assert {step['uses'].split('@')[0] for step in steps if 'uses' in step} == {
         'actions/checkout', 'actions/setup-python', 'actions/upload-artifact'}
     shell_steps = [step for step in steps if 'run' in step]
-    assert all('GH_TOKEN' not in step.get('env', {}) and 'gh release' not in step['run'] for step in shell_steps)
+    assert all('gh release' not in step['run'] for step in shell_steps)
+    token_steps = [step for step in shell_steps if 'GH_TOKEN' in step.get('env', {})]
+    assert len(token_steps) == 1 and 'scripts/notary_checkpoint.py --fetch-run' in token_steps[0]['run']
+    setup = next(step for step in steps if step.get('uses', '').startswith('actions/setup-python@'))
+    credentials = next(step for step in shell_steps if 'security import' in step['run'])
+    assert setup['with']['python-version'] == '3.13'
+    assert steps.index(setup) < steps.index(token_steps[0]) < steps.index(credentials)
     acceptance_step = next(step for step in shell_steps if 'scripts/check_installer.py' in step['run'])
     cleanup_step = next(step for step in shell_steps if 'security delete-keychain' in step['run'])
     assert cleanup_step['if'] == 'always()' and steps.index(cleanup_step) < steps.index(acceptance_step)

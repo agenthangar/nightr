@@ -18,6 +18,7 @@ import sys
 import tarfile
 import tempfile
 import urllib.request
+import notary_checkpoint
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -37,35 +38,6 @@ def run(*args, **kwargs):
         raise
     if result.stderr: phase(result.stderr[-32768:])
     return result.stdout.strip()
-
-def notarize(path, profile):
-    phase(f"Notarizing {path.name}")
-    # JSON makes an Accepted result mandatory, independently of process success.
-    try:
-        output = run("/usr/bin/xcrun", "notarytool", "submit", path,
-                     "--keychain-profile", profile, "--wait", "--timeout", "25m",
-                     "--output-format", "json", timeout=1560)
-    except subprocess.CalledProcessError as error:
-        output = error.stdout or ""
-        try: submission = json.loads(output)
-        except (ValueError, TypeError): raise error
-        notary_log(submission, profile)
-        raise
-    submission = json.loads(output)
-    phase(f"Notary submission {submission.get('id', 'missing ID')}: {submission.get('status', 'missing status')}")
-    if submission.get("status") != "Accepted" or not submission.get("id"):
-        notary_log(submission, profile)
-        raise RuntimeError("Notarization did not return Accepted with a submission ID")
-
-def notary_log(submission, profile):
-    identifier = submission.get("id", "")
-    if not re.fullmatch(r"[0-9a-fA-F-]{36}", identifier): return
-    phase(f"Notary failure submission ID: {identifier}")
-    try:
-        phase(run("/usr/bin/xcrun", "notarytool", "log", identifier,
-                  "--keychain-profile", profile, timeout=60)[-32768:])
-    except (subprocess.SubprocessError, OSError) as error:
-        phase(f"Notary log retrieval failed: {type(error).__name__}")
 
 def runtime(lock, destination):
     for arch, item in lock["architectures"].items():
@@ -98,6 +70,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--resume-run-id")
     args = parser.parse_args()
     if sys.platform != "darwin" or not re.fullmatch(r"0\.[0-9]+\.[0-9]+", args.version):
         parser.error("A macOS host and stable patch version are required")
@@ -112,96 +85,125 @@ def main():
     if settings["NIGHTR_APPLICATION_IDENTITY"] not in identities or settings["NIGHTR_INSTALLER_IDENTITY"] not in identities:
         parser.error("Both genuine Developer ID identities must be installed in the build keychain")
     args.output.mkdir(parents=True, exist_ok=True)
+    checkpoint = notary_checkpoint.Checkpoint(args.output / "checkpoint", args.version, team, resume_run_id=args.resume_run_id)
     with tempfile.TemporaryDirectory(prefix="nightr-release-") as temporary:
         stage = Path(temporary)
-        source_root = stage / "source"
-        source_root.mkdir()
-        shutil.copy2(ROOT / "Package.swift", source_root / "Package.swift")
-        for directory in ["Sources", "native-tests", "packaging"]:
-            shutil.copytree(ROOT / directory, source_root / directory, symlinks=True)
-        policy = source_root / "Sources/NightrInstallerGuard/BuildPolicy.swift"
-        policy.write_text("enum BuildPolicy { static let teamID = " + json.dumps(team) + "; static let version = " + json.dumps(args.version) + " }\n")
-        scratch = stage / "build"
-        phase("Building universal native targets")
-        run("/usr/bin/swift", "build", "--package-path", source_root, "--scratch-path", scratch, "-c", "release", "--arch", "arm64", "--arch", "x86_64")
-        binaries = Path(run("/usr/bin/swift", "build", "--package-path", source_root, "--scratch-path", scratch, "-c", "release", "--arch", "arm64", "--arch", "x86_64", "--show-bin-path"))
-        app = stage / "Nightr.app"
-        macos = app / "Contents/MacOS"; resources = app / "Contents/Resources"
-        macos.mkdir(parents=True); resources.mkdir()
-        for source, target in [("NightrApp", "NightrApp"), ("nightr-native", "nightr-native"), ("NightrPowerHelper", "nightr-powerhelper"), ("NightrNetworkWorker", "NightrNetworkWorker")]:
-            shutil.copy2(binaries / source, macos / target)
-            architectures = run("/usr/bin/lipo", "-archs", macos / target).split()
-            if sorted(architectures) != ["arm64", "x86_64"]: raise RuntimeError(f"Non-universal binary: {target}")
-        create_cli_alias(macos)
-        daemon = app / "Contents/Library/LaunchDaemons"; daemon.mkdir(parents=True)
-        shutil.copy2(ROOT / "packaging/ai.nightr.powerhelper.plist", daemon)
-        agents = app / "Contents/Library/LaunchAgents"; agents.mkdir(parents=True)
-        shutil.copy2(ROOT / "packaging/ai.nightr.agent.plist", agents)
-        shutil.copytree(ROOT / "libexec", resources / "libexec")
-        shutil.copy2(ROOT / "scripts/nightr_install.py", resources / "libexec/nightr_install.py")
-        shutil.copytree(ROOT / "zsh", resources / "zsh")
-        shutil.copy2(ROOT / "LICENSE", resources / "LICENSE")
-        shutil.copy2(ROOT / "packaging/homebrew-contract.json", resources / "homebrew-contract.json")
-        run("/usr/bin/swift", ROOT / "scripts/render_icon.swift", resources / "Nightr.icns")
-        phase("Downloading checksum-pinned standalone Python runtimes")
-        runtime(json.loads((ROOT / "packaging/runtime-lock.json").read_text()), resources / "runtime")
-        info = {"CFBundleIdentifier": "ai.nightr.app", "CFBundleName": "Nightr", "CFBundleDisplayName": "Nightr",
-                "CFBundleExecutable": "NightrApp", "CFBundleIconFile": "Nightr", "CFBundlePackageType": "APPL", "CFBundleShortVersionString": args.version,
-                "CFBundleVersion": args.version, "LSMinimumSystemVersion": "13.0", "LSUIElement": True,
-                "NSHighResolutionCapable": True, "NightrTeamID": team, "NightrProtocolVersion": 1,
-                "NSLocationWhenInUseUsageDescription": "Nightr uses location permission to show nearby Wi-Fi names when you choose a hotspot."}
-        with (app / "Contents/Info.plist").open("wb") as output: plistlib.dump(info, output)
-        phase("Signing app and bundled executables")
-        # Sign every standalone Python Mach-O before signing its enclosing app.
-        magic = {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"}
-        for path in sorted((resources / "runtime").rglob("*")):
-            if path.is_file() and not path.is_symlink():
-                with path.open("rb") as source: header = source.read(4)
-                if header in magic: sign(path, settings["NIGHTR_APPLICATION_IDENTITY"])
-        for binary, identifier in [("nightr-native", "ai.nightr.controller"), ("nightr-powerhelper", "ai.nightr.powerhelper"), ("NightrNetworkWorker", "ai.nightr.networkworker")]:
-            sign(macos / binary, settings["NIGHTR_APPLICATION_IDENTITY"], identifier)
-        sign(app, settings["NIGHTR_APPLICATION_IDENTITY"], "ai.nightr.app")
-        run("/usr/bin/codesign", "--verify", "--deep", "--strict", "--all-architectures", app)
-        # Notarize/staple the app independently so its DMG copy is assessable.
-        appzip = stage / "Nightr.zip"
-        run("/usr/bin/ditto", "-c", "-k", "--keepParent", app, appzip)
-        notarize(appzip, settings["NIGHTR_NOTARY_PROFILE"])
+        if not args.resume_run_id:
+            source_root = stage / "source"
+            source_root.mkdir()
+            shutil.copy2(ROOT / "Package.swift", source_root / "Package.swift")
+            for directory in ["Sources", "native-tests", "packaging"]:
+                shutil.copytree(ROOT / directory, source_root / directory, symlinks=True)
+            policy = source_root / "Sources/NightrInstallerGuard/BuildPolicy.swift"
+            policy.write_text("enum BuildPolicy { static let teamID = " + json.dumps(team) + "; static let version = " + json.dumps(args.version) + " }\n")
+            scratch = stage / "build"
+            phase("Building universal native targets")
+            run("/usr/bin/swift", "build", "--package-path", source_root, "--scratch-path", scratch, "-c", "release", "--arch", "arm64", "--arch", "x86_64")
+            binaries = Path(run("/usr/bin/swift", "build", "--package-path", source_root, "--scratch-path", scratch, "-c", "release", "--arch", "arm64", "--arch", "x86_64", "--show-bin-path"))
+            app = stage / "Nightr.app"
+            macos = app / "Contents/MacOS"; resources = app / "Contents/Resources"
+            macos.mkdir(parents=True); resources.mkdir()
+            for source, target in [("NightrApp", "NightrApp"), ("nightr-native", "nightr-native"), ("NightrPowerHelper", "nightr-powerhelper"), ("NightrNetworkWorker", "NightrNetworkWorker")]:
+                shutil.copy2(binaries / source, macos / target)
+                architectures = run("/usr/bin/lipo", "-archs", macos / target).split()
+                if sorted(architectures) != ["arm64", "x86_64"]: raise RuntimeError(f"Non-universal binary: {target}")
+            create_cli_alias(macos)
+            daemon = app / "Contents/Library/LaunchDaemons"; daemon.mkdir(parents=True)
+            shutil.copy2(ROOT / "packaging/ai.nightr.powerhelper.plist", daemon)
+            agents = app / "Contents/Library/LaunchAgents"; agents.mkdir(parents=True)
+            shutil.copy2(ROOT / "packaging/ai.nightr.agent.plist", agents)
+            shutil.copytree(ROOT / "libexec", resources / "libexec")
+            shutil.copy2(ROOT / "scripts/nightr_install.py", resources / "libexec/nightr_install.py")
+            shutil.copytree(ROOT / "zsh", resources / "zsh")
+            shutil.copy2(ROOT / "LICENSE", resources / "LICENSE")
+            shutil.copy2(ROOT / "packaging/homebrew-contract.json", resources / "homebrew-contract.json")
+            run("/usr/bin/swift", ROOT / "scripts/render_icon.swift", resources / "Nightr.icns")
+            phase("Downloading checksum-pinned standalone Python runtimes")
+            runtime(json.loads((ROOT / "packaging/runtime-lock.json").read_text()), resources / "runtime")
+            info = {"CFBundleIdentifier": "ai.nightr.app", "CFBundleName": "Nightr", "CFBundleDisplayName": "Nightr",
+                    "CFBundleExecutable": "NightrApp", "CFBundleIconFile": "Nightr", "CFBundlePackageType": "APPL", "CFBundleShortVersionString": args.version,
+                    "CFBundleVersion": args.version, "LSMinimumSystemVersion": "13.0", "LSUIElement": True,
+                    "NSHighResolutionCapable": True, "NightrTeamID": team, "NightrProtocolVersion": 1,
+                    "NSLocationWhenInUseUsageDescription": "Nightr uses location permission to show nearby Wi-Fi names when you choose a hotspot."}
+            with (app / "Contents/Info.plist").open("wb") as output: plistlib.dump(info, output)
+            phase("Signing app and bundled executables")
+            # Sign every standalone Python Mach-O before signing its enclosing app.
+            magic = {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"}
+            for path in sorted((resources / "runtime").rglob("*")):
+                if path.is_file() and not path.is_symlink():
+                    with path.open("rb") as source: header = source.read(4)
+                    if header in magic: sign(path, settings["NIGHTR_APPLICATION_IDENTITY"])
+            for binary, identifier in [("nightr-native", "ai.nightr.controller"), ("nightr-powerhelper", "ai.nightr.powerhelper"), ("NightrNetworkWorker", "ai.nightr.networkworker")]:
+                sign(macos / binary, settings["NIGHTR_APPLICATION_IDENTITY"], identifier)
+            sign(app, settings["NIGHTR_APPLICATION_IDENTITY"], "ai.nightr.app")
+            run("/usr/bin/codesign", "--verify", "--deep", "--strict", "--all-architectures", app)
+            # Notarize/staple the app independently so its DMG copy is assessable.
+            appzip = stage / "Nightr.zip"
+            run("/usr/bin/ditto", "-c", "-k", "--keepParent", app, appzip)
+            guard_binary = stage / "ai.nightr.installguard"
+            shutil.copy2(binaries / "NightrInstallerGuard", guard_binary)
+            sign(guard_binary, settings["NIGHTR_APPLICATION_IDENTITY"], "ai.nightr.installguard")
+            guard_arches = run("/usr/bin/lipo", "-archs", guard_binary).split()
+            if sorted(guard_arches) != ["arm64", "x86_64"]: raise RuntimeError("Installer guard is not universal")
+            checkpoint.retain("app", appzip)
+            checkpoint.retain("guard", guard_binary)
+        else:
+            appzip = checkpoint.path("app")
+            notary_checkpoint.validate_app_zip(appzip)
+            run("/usr/bin/ditto", "-x", "-k", appzip, stage)
+            app = stage / "Nightr.app"
+            guard_binary = stage / "ai.nightr.installguard"
+            shutil.copy2(checkpoint.path("guard"), guard_binary)
+            notary_checkpoint.verify_restored(app, guard_binary, team, args.version, run)
+            guard_binary.chmod(0o755)
+            if checkpoint.has("package"):
+                notary_checkpoint.verify_package(checkpoint.path("package"), team, args.version, run)
+            if checkpoint.has("dmg"):
+                requirement = f'anchor apple generic and certificate leaf[subject.OU] = "{team}"'
+                run("/usr/bin/codesign", "--verify", "--strict", "-R", requirement, checkpoint.path("dmg"))
+        checkpoint.notarize("app", settings["NIGHTR_NOTARY_PROFILE"], run)
         run("/usr/bin/xcrun", "stapler", "staple", app)
-        guard_binary = stage / "ai.nightr.installguard"
-        shutil.copy2(binaries / "NightrInstallerGuard", guard_binary)
-        sign(guard_binary, settings["NIGHTR_APPLICATION_IDENTITY"], "ai.nightr.installguard")
-        guard_arches = run("/usr/bin/lipo", "-archs", guard_binary).split()
-        if sorted(guard_arches) != ["arm64", "x86_64"]: raise RuntimeError("Installer guard is not universal")
-        package_scripts = stage / "package-scripts"
-        shutil.copytree(ROOT / "packaging/package-scripts", package_scripts)
-        shutil.copy2(guard_binary, package_scripts / "ai.nightr.installguard")
-        payload = stage / "payload"; (payload / "Applications").mkdir(parents=True)
-        shutil.copytree(app, payload / "Applications/Nightr.app", symlinks=True)
-        (payload / "usr/local/bin").mkdir(parents=True)
-        (payload / "usr/local/bin/nightr").symlink_to("/Applications/Nightr.app/Contents/MacOS/nightr")
-        privileged = payload / "Library/PrivilegedHelperTools"; privileged.mkdir(parents=True)
-        shutil.copy2(guard_binary, privileged / "ai.nightr.installguard")
-        # Root-owned state/lock files are intentionally outside the payload.
-        # Canonical app replacement must also permit a verified rollback.
-        components = stage / "components.plist"
-        with components.open("wb") as output:
-            plistlib.dump([{"RootRelativeBundlePath": "Applications/Nightr.app", "BundleIsRelocatable": False,
-                           "BundleIsVersionChecked": False, "BundleHasStrictIdentifier": True,
-                           "BundleOverwriteAction": "upgrade"}], output)
-        unsigned = stage / "unsigned.pkg"; package = stage / "Nightr.pkg"
-        phase("Building signed installer package")
-        run("/usr/bin/pkgbuild", "--root", payload, "--identifier", "ai.nightr.package", "--version", args.version, "--install-location", "/", "--ownership", "recommended", "--component-plist", components, "--scripts", package_scripts, unsigned)
-        run("/usr/bin/productsign", "--sign", settings["NIGHTR_INSTALLER_IDENTITY"], "--timestamp", unsigned, package)
-        notarize(package, settings["NIGHTR_NOTARY_PROFILE"])
+        run("/usr/bin/xcrun", "stapler", "validate", app)
+        notary_checkpoint.verify_restored(app, guard_binary, team, args.version, run)
+        package = stage / "Nightr.pkg"
+        if checkpoint.has("package"):
+            shutil.copy2(checkpoint.path("package"), package)
+        else:
+            package_scripts = stage / "package-scripts"
+            shutil.copytree(ROOT / "packaging/package-scripts", package_scripts)
+            shutil.copy2(guard_binary, package_scripts / "ai.nightr.installguard")
+            payload = stage / "payload"; (payload / "Applications").mkdir(parents=True)
+            shutil.copytree(app, payload / "Applications/Nightr.app", symlinks=True)
+            (payload / "usr/local/bin").mkdir(parents=True)
+            (payload / "usr/local/bin/nightr").symlink_to("/Applications/Nightr.app/Contents/MacOS/nightr")
+            privileged = payload / "Library/PrivilegedHelperTools"; privileged.mkdir(parents=True)
+            shutil.copy2(guard_binary, privileged / "ai.nightr.installguard")
+            # Root-owned state/lock files are intentionally outside the payload.
+            # Canonical app replacement must also permit a verified rollback.
+            components = stage / "components.plist"
+            with components.open("wb") as output:
+                plistlib.dump([{"RootRelativeBundlePath": "Applications/Nightr.app", "BundleIsRelocatable": False,
+                               "BundleIsVersionChecked": False, "BundleHasStrictIdentifier": True,
+                               "BundleOverwriteAction": "upgrade"}], output)
+            unsigned = stage / "unsigned.pkg"
+            phase("Building signed installer package")
+            run("/usr/bin/pkgbuild", "--root", payload, "--identifier", "ai.nightr.package", "--version", args.version, "--install-location", "/", "--ownership", "recommended", "--component-plist", components, "--scripts", package_scripts, unsigned)
+            run("/usr/bin/productsign", "--sign", settings["NIGHTR_INSTALLER_IDENTITY"], "--timestamp", unsigned, package)
+            checkpoint.retain("package", package)
+        checkpoint.notarize("package", settings["NIGHTR_NOTARY_PROFILE"], run)
         run("/usr/bin/xcrun", "stapler", "staple", package)
         run("/usr/bin/xcrun", "stapler", "validate", package)
-        image = stage / "image"; image.mkdir()
-        shutil.copytree(app, image / "Nightr.app", symlinks=True); shutil.copy2(package, image / "Nightr.pkg")
-        (image / "Install Nightr.txt").write_text("Open Nightr.pkg to install the signed app and command. Then open Nightr and choose Set up to explicitly authorize its power helper. Protection starts only when you enable it.\n")
         name = f"Nightr-{args.version}-universal.dmg"; dmg = args.output / name
-        run("/usr/bin/hdiutil", "create", "-volname", "Nightr", "-srcfolder", image, "-format", "UDZO", "-ov", dmg)
-        sign(dmg, settings["NIGHTR_APPLICATION_IDENTITY"])
-        notarize(dmg, settings["NIGHTR_NOTARY_PROFILE"])
+        if checkpoint.has("dmg"):
+            shutil.copy2(checkpoint.path("dmg"), dmg)
+        else:
+            image = stage / "image"; image.mkdir()
+            shutil.copytree(app, image / "Nightr.app", symlinks=True); shutil.copy2(package, image / "Nightr.pkg")
+            (image / "Install Nightr.txt").write_text("Open Nightr.pkg to install the signed app and command. Then open Nightr and choose Set up to explicitly authorize its power helper. Protection starts only when you enable it.\n")
+            run("/usr/bin/hdiutil", "create", "-volname", "Nightr", "-srcfolder", image, "-format", "UDZO", "-ov", dmg)
+            sign(dmg, settings["NIGHTR_APPLICATION_IDENTITY"])
+            checkpoint.retain("dmg", dmg)
+        checkpoint.notarize("dmg", settings["NIGHTR_NOTARY_PROFILE"], run)
         run("/usr/bin/xcrun", "stapler", "staple", dmg); run("/usr/bin/xcrun", "stapler", "validate", dmg)
         phase("Verifying final signed DMG read-only")
         run(sys.executable, ROOT / "scripts/verify_release.py", "--dmg", dmg, "--team-id", team, "--version", args.version)
