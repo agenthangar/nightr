@@ -1,7 +1,10 @@
-"""Safe candidate acceptance contracts: all platform/install operations mocked."""
+"""Candidate contracts; installation is mocked, signing proof uses temp ad-hoc code."""
 import contextlib
 import json
+import os
 from pathlib import Path
+import plistlib
+import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -12,6 +15,47 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import check_installer as acceptance
 import build_release as build
+
+
+def test_cli_alias_survives_payload_copy_inside_the_bundle(tmp_path):
+    app = tmp_path / 'Nightr.app'
+    macos = app / 'Contents/MacOS'
+    macos.mkdir(parents=True)
+    (macos / 'nightr-native').write_bytes(b'fixture native executable')
+    build.create_cli_alias(macos)
+    copied = tmp_path / 'payload/Nightr.app'
+    shutil.copytree(app, copied, symlinks=True)
+    for bundle in (app, copied):
+        alias = bundle / 'Contents/MacOS/nightr'
+        assert alias.is_symlink()
+        assert os.readlink(alias) == 'nightr-native'
+        assert alias.resolve() == bundle / 'Contents/MacOS/nightr-native'
+
+
+@pytest.mark.skipif(sys.platform != 'darwin', reason='macOS codesign structure check')
+def test_cli_alias_allows_strict_bundle_sealing_without_script_signatures(tmp_path):
+    # Ad-hoc, temporary copies only: no private identity, Keychain change, launch,
+    # Gatekeeper override, or notarization claim.
+    app = tmp_path / 'Fixture.app'
+    macos = app / 'Contents/MacOS'
+    macos.mkdir(parents=True)
+    for name in ('Fixture', 'nightr-native'):
+        # Copy bytes, not the system binary's protected filesystem flags.
+        shutil.copyfile('/usr/bin/true', macos / name)
+        (macos / name).chmod(0o755)
+    (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
+        'CFBundleIdentifier': 'ai.nightr.test.fixture', 'CFBundleExecutable': 'Fixture',
+        'CFBundlePackageType': 'APPL', 'CFBundleVersion': '1',
+    }))
+    build.create_cli_alias(macos)
+    for path in (macos / 'nightr-native', app):
+        subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', '--timestamp=none', str(path)],
+                       check=True, capture_output=True, text=True, timeout=30)
+    copied = tmp_path / 'payload/Fixture.app'
+    shutil.copytree(app, copied, symlinks=True)
+    for path in (app, copied):
+        subprocess.run(['/usr/bin/codesign', '--verify', '--deep', '--strict', '--all-architectures', str(path)],
+                       check=True, capture_output=True, text=True, timeout=30)
 
 
 @pytest.mark.parametrize('opt_in,platform,markers', [

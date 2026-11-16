@@ -88,6 +88,12 @@ def sign(path, identity, identifier=None):
     if identifier: arguments += ["--identifier", identifier]
     run(*arguments, path)
 
+def create_cli_alias(macos):
+    # Contents/MacOS is a code directory. Use the signed Mach-O directly rather
+    # than a shell wrapper whose extended-attribute signature would not survive
+    # all package transports. The app signature seals this internal link.
+    (macos / "nightr").symlink_to("nightr-native")
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", required=True)
@@ -126,7 +132,7 @@ def main():
             shutil.copy2(binaries / source, macos / target)
             architectures = run("/usr/bin/lipo", "-archs", macos / target).split()
             if sorted(architectures) != ["arm64", "x86_64"]: raise RuntimeError(f"Non-universal binary: {target}")
-        shutil.copy2(ROOT / "packaging/nightr", macos / "nightr"); (macos / "nightr").chmod(0o755)
+        create_cli_alias(macos)
         daemon = app / "Contents/Library/LaunchDaemons"; daemon.mkdir(parents=True)
         shutil.copy2(ROOT / "packaging/ai.nightr.powerhelper.plist", daemon)
         agents = app / "Contents/Library/LaunchAgents"; agents.mkdir(parents=True)
