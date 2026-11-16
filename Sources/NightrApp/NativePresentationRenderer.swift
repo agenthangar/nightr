@@ -1,0 +1,158 @@
+#if os(macOS) && DEBUG
+import AppKit
+import SwiftUI
+import NightrCore
+import NightrController
+
+/// Internal debug-only offscreen artifact path. Runs before AppModel exists;
+/// uses synthetic observations and never creates windows or system services.
+@MainActor enum NativePresentationRenderer {
+    static func run(output: URL) throws {
+        _ = NSApplication.shared
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try checkArtwork()
+        var draft = NightrCore.Settings(); draft.hotspot = true; draft.hotspotSSID = "Sample iPhone · exact long SSID"; draft.every = 900
+        for dark in [false, true] {
+            let scheme: ColorScheme = dark ? .dark : .light
+            let suffix = dark ? "dark" : "light"
+            for section in NightrSettingsSection.allCases {
+                try render(SettingsView(section: .constant(section), status: sample("On"), initialDraft: draft).environment(\.colorScheme, scheme),
+                    size: NSSize(width: 600, height: 540), dark: dark, to: output.appendingPathComponent("settings-\(section.rawValue.lowercased())-\(suffix).png"))
+            }
+            for label in ["Off", "On", "Paused", "Recovering", "Error"] {
+                try render(NightrPopover(status: sample(label), error: label == "Error" ? "Sample setup requires authorization. Open setup to continue." : nil).environment(\.colorScheme, scheme),
+                    size: nil, dark: dark, to: output.appendingPathComponent("popover-\(label.lowercased())-\(suffix).png"))
+            }
+        }
+        // Run the deterministic routing/state contracts even on Command Line
+        // Tools hosts, which cannot import XCTest. Full XCTest remains in CI.
+        for arguments in [[], ["--controller-only"], ["--settings-only"]] {
+            let launch = GUILaunchConfiguration(arguments: arguments)
+            precondition(launch.headless == arguments.contains("--controller-only"))
+            precondition(launch.exitsAfterConnectingToExistingOwner == launch.headless)
+            precondition((launch.startup == .presentation) == arguments.contains("--settings-only"))
+        }
+        var labels: Set<String> = [], symbols: Set<String> = []
+        for label in ["Off", "On", "Paused", "Recovering", "Error"] {
+            let summary = GUIProtectionSummary(status: sample(label))
+            precondition(summary.label == label)
+            labels.insert(summary.label); symbols.insert(summary.symbol)
+        }
+        precondition(labels.count == 5 && symbols.count == 5)
+        try checkVisibilityFeedback()
+        try checkRegistration()
+        try checkSettingsReceipt(in: output)
+        print("Rendered 18 actual native view fixtures; artwork, launch/state and visibility-feedback and synthetic-registration contracts passed.")
+    }
+    private static func checkSettingsReceipt(in output: URL) throws {
+        let directory = output.appendingPathComponent("save-contract")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SettingsStore(url: directory.appendingPathComponent("config.json"))
+        var draft = NightrCore.Settings(); draft.launchAtLogin = false
+        let committed = try store.save(draft, expected: nil)
+        let stored = try Data(contentsOf: store.url); precondition(stored == committed)
+        var external = draft; external.every = 47
+        try store.save(external, expected: committed)
+        do { try store.save(draft, expected: committed); preconditionFailure("Concurrent settings overwrite accepted") }
+        catch { let retained = try store.load(); precondition(retained == external) }
+    }
+    private static func checkRegistration() throws {
+        let existing = SyntheticService("existing", .enabled), pending = SyntheticService("pending", .requiresApproval)
+        let retained = try DesktopRegistrationReceipt.enable([existing, pending])
+        precondition(retained.pending == ["pending"] && existing.actions.isEmpty && pending.actions.isEmpty)
+        try retained.rollback()
+        precondition(existing.status == .enabled && pending.status == .requiresApproval)
+        let fresh = SyntheticService("fresh", .notRegistered), missing = SyntheticService("missing", .unavailable)
+        do { _ = try DesktopRegistrationReceipt.enable([fresh, missing]); preconditionFailure("Missing service accepted") }
+        catch { precondition(fresh.actions == ["register", "unregister"] && fresh.status == .notRegistered) }
+        let approval = SyntheticService("approval", .notRegistered)
+        approval.pendingAfterRegister = true
+        let receipt = try DesktopRegistrationReceipt.enable([approval])
+        try receipt.rollback()
+        precondition(receipt.pending == ["approval"] && approval.actions == ["register"] && approval.status == .requiresApproval)
+        try DesktopRegistrationReceipt.disable([existing, pending])
+        precondition(existing.actions == ["unregister"] && pending.actions == ["unregister"])
+    }
+    private final class SyntheticService: DesktopServiceRegistration {
+        let name: String
+        var status: DesktopServiceStatus
+        var actions: [String] = []
+        var pendingAfterRegister = false
+        init(_ name: String, _ status: DesktopServiceStatus) { self.name = name; self.status = status }
+        func register() throws {
+            actions.append("register")
+            status = pendingAfterRegister ? .requiresApproval : .enabled
+            if pendingAfterRegister { throw DesktopServiceError("Synthetic pending approval") }
+        }
+        func unregister() throws { actions.append("unregister"); status = .notRegistered }
+    }
+    private static func checkVisibilityFeedback() throws {
+        var visible = true
+        var scheduled: [@MainActor () -> Void] = []
+        var publications: [Bool] = []
+        let feedback = GUIMenuVisibilityFeedback(read: { visible }, publish: { visible = $0; publications.append($0) }, schedule: { scheduled.append($0) })
+        feedback.receive(false)
+        precondition(visible && publications.isEmpty && scheduled.count == 1)
+        feedback.receive(true)
+        let cancelled = scheduled; scheduled.removeAll(); cancelled.forEach { $0() }
+        precondition(visible && publications.isEmpty)
+        feedback.receive(false); feedback.receive(true); feedback.receive(false)
+        let coalesced = scheduled; scheduled.removeAll(); coalesced.forEach { $0() }
+        precondition(!visible && publications == [false])
+        feedback.receive(true); feedback.invalidate()
+        let invalidated = scheduled; scheduled.removeAll(); invalidated.forEach { $0() }
+        precondition(!visible && publications == [false])
+    }
+    private static func render<V: View>(_ view: V, size: NSSize?, dark: Bool, to url: URL) throws {
+        let host = NSHostingView(rootView: view)
+        host.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        host.frame.size = size ?? host.fittingSize
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { throw RenderError.bitmap }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        guard let png = rep.representation(using: .png, properties: [:]) else { throw RenderError.bitmap }
+        try png.write(to: url)
+        if url.lastPathComponent.hasPrefix("settings-") { try checkToolbarKeyboard(host) }
+    }
+    private static func checkToolbarKeyboard(_ host: NSView) throws {
+        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+        let labels = NightrSettingsSection.allCases.map(\.rawValue)
+        let buttons = descendants(host).compactMap { $0 as? NSButton }.filter { labels.contains($0.title) }.sorted { $0.tag < $1.tag }
+        precondition(buttons.count == 4)
+        guard let selected = buttons.firstIndex(where: { $0.acceptsFirstResponder }) else { preconditionFailure("Selected tab has no keyboard entry") }
+        precondition(buttons.filter(\.acceptsFirstResponder).count == 1)
+        let navigation: [(UInt16, Int)] = [(124, (selected + 1) % 4), (115, 0), (119, 3), (123, 2)]
+        for (keyCode, expected) in navigation {
+            guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                               characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: keyCode) else { throw RenderError.bitmap }
+            buttons.first(where: { $0.acceptsFirstResponder })?.keyDown(with: event)
+            precondition(buttons[expected].acceptsFirstResponder && buttons.filter(\.acceptsFirstResponder).count == 1)
+        }
+    }
+    private static func checkArtwork() throws {
+        precondition(MoonSparkArtwork.menuImage.size == NSSize(width: 19, height: 19) && MoonSparkArtwork.menuImage.isTemplate)
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 76, pixelsHigh: 76, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap) else { throw RenderError.bitmap }
+        MoonSparkArtwork.draw(in: context.cgContext, rect: CGRect(x: 0, y: 0, width: 76, height: 76), color: .black)
+        var occupied = 0
+        for y in 0..<76 { for x in 0..<76 {
+            if (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.05 {
+                occupied += 1; precondition(x > 0 && x < 75 && y > 0 && y < 75)
+            }
+        } }
+        precondition(occupied > 200)
+    }
+    private static func sample(_ label: String) -> ControllerStatus {
+        var state = ControllerState(); state.desiredEnabled = label != "Off"
+        state.internet = label == "Recovering" ? .checking : label == "On" ? .verified : .unavailable
+        state.pause = label == "Error" ? .setup : label == "Off" ? .stopped : .connectivity
+        if label == "Recovering" {
+            var outage = OutageLedger(now: Date(timeIntervalSince1970: 0), settings: NightrCore.Settings()); outage.consumed = 2; state.outage = outage
+        }
+        return ControllerStatus(engine: MonitorEngine(state: state, sample: MachineSample(batteryPercent: 84, agentActive: true, setupReady: label != "Error")), holding: label == "On")
+    }
+    private enum RenderError: Error { case bitmap }
+}
+#endif

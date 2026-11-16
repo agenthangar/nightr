@@ -32,7 +32,10 @@ unsupervised privileged stdio engine, privileged worktree execution or silent
 helper authorization. Protection starts only with enabled user intent.
 
 The app's optional login service is the bundled `ai.nightr.agent.plist` registered
-through `SMAppService.agent`. A nonzero crash may restart it after throttling;
+through `SMAppService.agent` for headless controller restoration, paired with
+`SMAppService.mainApp` for the visible menu bar app on subsequent logins. The
+agent’s `--controller-only` mode remains headless; a visible app connects to an
+existing owner instead of creating a second controller. A nonzero crash may restart it after throttling;
 the controller's durable crash ledger bounds protection retries. Normal Stop
 and Quit exit successfully and preserve disabled intent. CLI-only setup never
 registers this service.

@@ -36,6 +36,51 @@ final class GUIRoutingTests: XCTestCase {
         XCTAssertFalse(desiredEnabled)
         XCTAssertEqual(presentation.section, .general)
     }
+    func testDesktopAndHeadlessOwnerLaunchMatrix() {
+        for arguments in [[String]()] {
+            let launch = GUILaunchConfiguration(arguments: arguments)
+            XCTAssertEqual(launch.startup, .controller)
+            XCTAssertFalse(launch.headless)
+            XCTAssertFalse(launch.exitsAfterConnectingToExistingOwner)
+            XCTAssertTrue(GUIPresentationState(headless: launch.headless).menuVisible)
+        }
+        let owner = GUILaunchConfiguration(arguments: ["--controller-only"])
+        XCTAssertEqual(owner.startup, .controller)
+        XCTAssertTrue(owner.headless)
+        XCTAssertTrue(owner.exitsAfterConnectingToExistingOwner)
+        for flag in ["--settings-only", "--setup", "--hotspot-setup", "--enable-discovery"] {
+            let settings = GUILaunchConfiguration(arguments: [flag])
+            XCTAssertEqual(settings.startup, .presentation)
+            XCTAssertFalse(settings.headless)
+            XCTAssertFalse(settings.exitsAfterConnectingToExistingOwner)
+        }
+    }
+    func testObservedProtectionStatesHaveDistinctTextAndGlyphs() {
+        var labels: Set<String> = [], symbols: Set<String> = []
+        for (enabled, holding, internet, pause): (Bool, Bool, InternetState, PauseReason?) in [
+            (false, false, .unknown, .stopped), (true, true, .verified, nil),
+            (true, false, .unavailable, .connectivity), (true, false, .checking, .connectivity),
+            (true, false, .unknown, .setup)] {
+            var state = ControllerState(); state.desiredEnabled = enabled; state.internet = internet; state.pause = pause
+            let summary = GUIProtectionSummary(status: ControllerStatus(engine: MonitorEngine(state: state), holding: holding))
+            labels.insert(summary.label); symbols.insert(summary.symbol)
+        }
+        XCTAssertEqual(labels, ["Off", "On", "Paused", "Recovering", "Error"])
+        XCTAssertEqual(symbols.count, 5)
+        XCTAssertEqual(GUIProtectionSummary(status: nil).label, "Error")
+    }
+    func testCommittedSettingsBytesRemainAnExactConflictBaseline() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("nightr-save-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SettingsStore(url: directory.appendingPathComponent("config.json"))
+        var saved = Settings(); saved.launchAtLogin = false
+        let committed = try store.save(saved, expected: nil)
+        XCTAssertEqual(try Data(contentsOf: store.url), committed)
+        var external = saved; external.every = 47
+        _ = try store.save(external, expected: committed)
+        XCTAssertThrowsError(try store.save(saved, expected: committed))
+        XCTAssertEqual(try store.load(), external)
+    }
     func testLostAcknowledgementHasFixedRetryAndDeadlineBudget() {
         let request = GUISettingsRequest(route: .connectivity)
         var delivery = GUISettingsDelivery(request: request, now: 10)

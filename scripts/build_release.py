@@ -117,7 +117,10 @@ def main():
             shutil.copytree(ROOT / "zsh", resources / "zsh")
             shutil.copy2(ROOT / "LICENSE", resources / "LICENSE")
             shutil.copy2(ROOT / "packaging/homebrew-contract.json", resources / "homebrew-contract.json")
-            run("/usr/bin/swift", ROOT / "scripts/render_icon.swift", resources / "Nightr.icns")
+            icon_renderer = resources / "render-nightr-icon"
+            run("/usr/bin/swiftc", "-parse-as-library", ROOT / "Sources/NightrCore/MoonSparkArtwork.swift", ROOT / "scripts/render_icon.swift", "-o", icon_renderer)
+            run(icon_renderer, resources / "Nightr.icns")
+            icon_renderer.unlink()
             phase("Downloading checksum-pinned standalone Python runtimes")
             runtime(json.loads((ROOT / "packaging/runtime-lock.json").read_text()), resources / "runtime")
             info = {"CFBundleIdentifier": "ai.nightr.app", "CFBundleName": "Nightr", "CFBundleDisplayName": "Nightr",
