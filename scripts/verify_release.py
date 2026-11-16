@@ -12,7 +12,7 @@ def main():
     parser.add_argument("--team-id", required=True)
     parser.add_argument("--version", required=True)
     args = parser.parse_args()
-    nightr_install.run(["/usr/bin/codesign", "--verify", "--strict", "-R", f'anchor apple generic and certificate leaf[subject.OU] = "{args.team_id}"', args.dmg])
+    nightr_install.run(["/usr/bin/codesign", "--verify", "--strict", f'-R=anchor apple generic and certificate leaf[subject.OU] = "{args.team_id}"', args.dmg])
     nightr_install.run(["/usr/sbin/spctl", "--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=2", args.dmg])
     nightr_install.run(["/usr/bin/xcrun", "stapler", "validate", args.dmg])
     with tempfile.TemporaryDirectory(prefix="nightr-verify-") as temporary:
@@ -26,7 +26,7 @@ def main():
             script_guard = expanded / "Scripts/ai.nightr.installguard"
             requirement = f'anchor apple generic and identifier "ai.nightr.installguard" and certificate leaf[subject.OU] = "{args.team_id}"'
             for binary in [guard, script_guard]:
-                nightr_install.run(["/usr/bin/codesign", "--verify", "--strict", "--all-architectures", "-R", requirement, binary])
+                nightr_install.run(["/usr/bin/codesign", "--verify", "--strict", "--all-architectures", "-R=" + requirement, binary])
                 if sorted(nightr_install.run(["/usr/bin/lipo", "-archs", binary]).split()) != ["arm64", "x86_64"]:
                     raise RuntimeError("Installer guard is not universal")
             if nightr_install._sha256(guard) != nightr_install._sha256(script_guard):

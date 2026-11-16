@@ -252,13 +252,12 @@ def verify_restored(app, guard, team, version, run):
         ('nightr-native', 'ai.nightr.controller'), ('nightr-powerhelper', 'ai.nightr.powerhelper'), ('NightrNetworkWorker', 'ai.nightr.networkworker')]]
     for path, identifier in targets:
         requirement = f'anchor apple generic and identifier "{identifier}" and certificate leaf[subject.OU] = "{team}"'
-        run('/usr/bin/codesign', '--verify', '--deep', '--strict', '--all-architectures', '-R', requirement, path)
+        run('/usr/bin/codesign', '--verify', '--deep', '--strict', '--all-architectures', '-R=' + requirement, path)
         executable = app / 'Contents/MacOS/NightrApp' if path == app else path
         if sorted(run('/usr/bin/lipo', '-archs', executable).split()) != ['arm64', 'x86_64']:
             raise RuntimeError('Restored executable is not universal')
     for arch in ['arm64', 'x86_64']:
-        run('/usr/bin/codesign', '--verify', '--strict', '--all-architectures', '-R',
-            f'anchor apple generic and certificate leaf[subject.OU] = "{team}"',
+        run('/usr/bin/codesign', '--verify', '--strict', '--all-architectures', f'-R=anchor apple generic and certificate leaf[subject.OU] = "{team}"',
             app / 'Contents/Resources/runtime' / arch / 'bin/python3')
         if run('/usr/bin/lipo', '-archs', app / 'Contents/Resources/runtime' / arch / 'bin/python3').split() != [arch]:
             raise RuntimeError('Restored bundled runtime architecture differs')
@@ -277,7 +276,7 @@ def verify_package(path, team, version, run):
             raise RuntimeError('Restored package identity/version differs')
         verify_restored(expanded / 'Payload/Applications/Nightr.app', expanded / 'Payload/Library/PrivilegedHelperTools/ai.nightr.installguard', team, version, run)
         requirement = f'anchor apple generic and identifier "ai.nightr.installguard" and certificate leaf[subject.OU] = "{team}"'
-        run('/usr/bin/codesign', '--verify', '--strict', '--all-architectures', '-R', requirement, expanded / 'Scripts/ai.nightr.installguard')
+        run('/usr/bin/codesign', '--verify', '--strict', '--all-architectures', '-R=' + requirement, expanded / 'Scripts/ai.nightr.installguard')
         if digest(expanded / 'Scripts/ai.nightr.installguard') != digest(expanded / 'Payload/Library/PrivilegedHelperTools/ai.nightr.installguard'):
             raise RuntimeError('Restored package guards differ')
 
@@ -342,8 +341,7 @@ def fetch(run_id, version, team, destination):
     if checkpoint.has('package'):
         verify_package(checkpoint.path('package'), team, version, command)
     if checkpoint.has('dmg'):
-        command('/usr/bin/codesign', '--verify', '--strict', '-R',
-                f'anchor apple generic and certificate leaf[subject.OU] = "{team}"', checkpoint.path('dmg'))
+        command('/usr/bin/codesign', '--verify', '--strict', f'-R=anchor apple generic and certificate leaf[subject.OU] = "{team}"', checkpoint.path('dmg'))
     # Keep the fetched producer ID until the actual build claims the checkpoint.
     checkpoint.data['producerRunID'] = run_id
     checkpoint.save()

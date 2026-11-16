@@ -160,7 +160,7 @@ def main():
                 notary_checkpoint.verify_package(checkpoint.path("package"), team, args.version, run)
             if checkpoint.has("dmg"):
                 requirement = f'anchor apple generic and certificate leaf[subject.OU] = "{team}"'
-                run("/usr/bin/codesign", "--verify", "--strict", "-R", requirement, checkpoint.path("dmg"))
+                run("/usr/bin/codesign", "--verify", "--strict", "-R=" + requirement, checkpoint.path("dmg"))
         checkpoint.notarize("app", settings["NIGHTR_NOTARY_PROFILE"], run)
         run("/usr/bin/xcrun", "stapler", "staple", app)
         run("/usr/bin/xcrun", "stapler", "validate", app)
