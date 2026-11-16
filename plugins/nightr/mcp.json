@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "nightr": {
+      "type": "stdio",
+      "command": "/Applications/Nightr.app/Contents/MacOS/nightr-native",
+      "args": ["mcp"]
+    }
+  }
+}

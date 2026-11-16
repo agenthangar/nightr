@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "nightr": {
+      "type": "stdio",
+      "command": "/Applications/Nightr.app/Contents/MacOS/nightr-native",
+      "args": ["mcp"]
+    }
+  }
+}

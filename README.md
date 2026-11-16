@@ -54,12 +54,28 @@ See [distribution and signing](docs/distribution.md), the
 [upstream attribution](docs/provenance.md). The extracted source-only CLI and its
 legacy behavior are documented in [the compatibility guide](docs/cli.md).
 
+## Agent controls
+
+The native CLI provides a local stdio MCP server with `nightr mcp`. Its eight
+tools inspect policy and readiness or explicitly Start, Stop and control a
+bounded hotspot cycle. Read-only tools never launch the controller. Protection
+is shared per user: connecting, disconnecting and finishing an agent task never
+change it. Stop affects every client. See [MCP and plugin setup](docs/plugins.md)
+and [the command contract](docs/cli.md#mcp-server). Signed release availability
+remains subject to the pre-release notice above.
+
 ## Development
 
 Contributor builds require a Swift toolchain and the macOS SDK. This requirement
 does not apply to the planned prebuilt release. `swift build` compiles native
 targets. `swift test` requires XCTest; Linux CI exercises portable logic and full
 Xcode supplies macOS XCTest. Native desktop tests are opt-in.
+
+After `swift build --product nightr-native`, a protocol-only working preview is
+available with `python3 scripts/preview_mcp.py --binary .build/debug/nightr-native`.
+It shows native discovery and tool definitions, without invoking the controller
+or machine operations. `python3 scripts/check_mcp.py --binary .build/debug/nightr-native`
+runs the fake protocol harness and bounded stdio process checks.
 
 ```sh
 python3 -m pip install -r requirements-dev.txt
