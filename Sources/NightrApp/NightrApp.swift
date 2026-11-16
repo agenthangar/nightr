@@ -13,7 +13,7 @@ import NightrCore
         _model = StateObject(wrappedValue: instance)
     }
     var body: some Scene {
-        MenuBarExtra(isInserted: $model.presentation.menuVisible) {
+        MenuBarExtra(isInserted: Binding(get: { model.presentation.menuVisible }, set: { model.menuVisibilityChanged($0) })) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack { MoonSpark().frame(width: 23, height: 23); Text("Nightr").font(.headline); Spacer(); Text(model.label).foregroundStyle(.secondary) }
                 Button(model.status?.state.desiredEnabled == true ? "Stop" : "Start") {
