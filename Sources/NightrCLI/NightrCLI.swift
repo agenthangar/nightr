@@ -197,7 +197,7 @@ import Glibc
         configuration.createsNewApplicationInstance = false
         configuration.allowsRunningApplicationSubstitution = false
         let running = try await NSWorkspace.shared.openApplication(at: app, configuration: configuration)
-        try GUISettingsAcknowledgement.wait(route: route, targetPID: running.processIdentifier)
+        try await GUISettingsAcknowledgement.wait(route: route, targetPID: running.processIdentifier)
     }
     static func launchApp(arguments: [String], wait: Bool = false) throws {
         let app = executable.deletingLastPathComponent().appendingPathComponent("NightrApp")
@@ -310,8 +310,8 @@ import Glibc
 }
 
 #if os(macOS)
-/// DNC delivers on the main run loop, which an async command-line process must
-/// explicitly pump while waiting. The observer exists before the first post.
+/// DNC delivery needs the main executor to remain available. Suspend between
+/// attempts rather than synchronously pumping its run loop. Observe before posting.
 @MainActor private final class GUISettingsAcknowledgement: NSObject {
     private let center = DistributedNotificationCenter.default()
     private let target: String
@@ -328,9 +328,10 @@ import Glibc
               let response = GUISettingsRequest(userInfo: notification.userInfo) else { return }
         delivery.acknowledge(response)
     }
-    private func run() throws {
+    private func run() async throws {
         defer { center.removeObserver(self) }
         while true {
+            try Task.checkCancellation()
             switch delivery.next(now: ProcessInfo.processInfo.systemUptime) {
             case .acknowledged: return
             case .expired: throw IPCError.invalid("Nightr did not acknowledge Settings; try again or open the app manually")
@@ -339,12 +340,11 @@ import Glibc
                                             userInfo: delivery.request.userInfo, options: [.deliverImmediately])
             case .wait: break
             }
-            // The default mode is a common run-loop mode used by DNC delivery.
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            try await Task.sleep(nanoseconds: 50_000_000)
         }
     }
-    static func wait(route: GUISettingsRoute, targetPID: Int32) throws {
-        try GUISettingsAcknowledgement(route: route, targetPID: targetPID).run()
+    static func wait(route: GUISettingsRoute, targetPID: Int32) async throws {
+        try await GUISettingsAcknowledgement(route: route, targetPID: targetPID).run()
     }
 }
 #endif
