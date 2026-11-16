@@ -1,0 +1,69 @@
+name: Signed managed upgrade acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: 'Successful signed 0.0.0 candidate run ID'
+        required: true
+        type: string
+      final_run_id:
+        description: 'Successful signed 0.1.0 candidate run ID from the same source'
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nightr-upgrade-acceptance
+  cancel-in-progress: false
+jobs:
+  acceptance:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      NIGHTR_TEAM_ID: ${{ vars.NIGHTR_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Initialize truthful acceptance reports
+        run: |
+          mkdir -p dist
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          for name in ('candidate-provenance', 'upgrade-acceptance'):
+              Path(f'dist/{name}.json').write_text(json.dumps({
+                  'schemaVersion': 1, 'status': 'not_started',
+                  'workflowSHA': os.environ['GITHUB_SHA'], 'runID': os.environ['GITHUB_RUN_ID'],
+                  'reason': 'Earlier validation or candidate acquisition has not completed.',
+                  'untested': ['public HTTPS acquisition', 'controller finish-update/resume',
+                               'helper/login authorization', 'rollback/reboot recovery']
+              }, indent=2) + '\n')
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Fetch authenticated same-source candidates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+          FINAL_RUN_ID: ${{ inputs.final_run_id }}
+        run: |
+          python3 scripts/fetch_upgrade_candidates.py --baseline-run-id "$BASELINE_RUN_ID" --final-run-id "$FINAL_RUN_ID" --team-id "$NIGHTR_TEAM_ID" --output candidates --report dist/candidate-provenance.json
+      - name: Accept the real managed version upgrade
+        run: |
+          python3 scripts/check_upgrade.py --disposable-github-runner --team-id "$NIGHTR_TEAM_ID" --baseline-manifest candidates/baseline/nightr-release.json --baseline-dmg candidates/baseline/Nightr-0.0.0-universal.dmg --final-manifest candidates/final/nightr-release.json --final-dmg candidates/final/Nightr-0.1.0-universal.dmg --report dist/upgrade-acceptance.json
+      - name: Retain reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightr-upgrade-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            dist/candidate-provenance.json
+            dist/upgrade-acceptance.json
+          if-no-files-found: warn
+          retention-days: 14
