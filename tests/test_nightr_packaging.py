@@ -958,7 +958,7 @@ def test_settings_presentation_does_not_register_cold_launch_urls():
     delegate = (ROOT / "Sources/NightrApp/ApplicationEvents.swift").read_text()
     assert "open urls:" not in delegate
     assert "postToAllSessions" not in delegate
-    cli = (ROOT / "Sources/NightrCLI/main.swift").read_text()
+    cli = (ROOT / "Sources/NightrCLI/NightrCLI.swift").read_text()
     route = cli[cli.index("static func openSettings("):cli.index("static func launchApp(")]
     assert "openApplication(at: app" in route
     assert "createsNewApplicationInstance = false" in route

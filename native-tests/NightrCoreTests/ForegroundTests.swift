@@ -159,11 +159,12 @@ final class ForegroundTests: XCTestCase {
         try await service.start()
         _ = await service.request(.init(command: .start))
         XCTAssertTrue(try StateJournal.load(directory: runtime).desiredEnabled)
-        // A directory at the destination makes journal rename fail without touching
-        // permissions or relying on whether tests run as root.
-        let journal = runtime.appendingPathComponent("state.json")
-        try FileManager.default.removeItem(at: journal)
-        try FileManager.default.createDirectory(at: journal, withIntermediateDirectories: false)
+        // Move the whole parent aside before obstructing it. A background tick
+        // can recreate state.json between unlink and mkdir, but journal writers
+        // never recreate the runtime directory. This makes Stop persistence fail
+        // without permissions, timing assumptions, or dependence on running as root.
+        try FileManager.default.moveItem(at: runtime, to: root.appendingPathComponent("displaced-run"))
+        try Data("not a directory".utf8).write(to: runtime)
         let response = await service.request(.init(command: .stop))
         XCTAssertNotNil(response.error)
         XCTAssertFalse(response.status!.state.desiredEnabled)
