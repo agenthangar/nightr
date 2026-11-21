@@ -14,16 +14,19 @@ production power-management installation.
 
 The release package will include the app, CLI, power helper and Python runtime.
 Users will not need Xcode, developer tools or a separate Python installation.
-The planned entry points are:
+Once the signed release and matching Homebrew cask are published, install with:
 
 ```sh
+brew tap agenthangar/tap
 brew install --cask agenthangar/tap/nightr
-t install nightr
 ```
 
-A signed macOS installer inside a DMG is the download alternative. Installation
-requires administrator authorization; helper approval remains an explicit setup
-step. These installation commands need a published Nightr release and cask.
+AgentHangar t users can run `t install` and choose **Nightr** under
+**Desktop Apps**. If you confirm the Homebrew installation, t adds the
+AgentHangar tap if needed and verifies the published cask. The signed macOS
+installer inside the DMG is the download alternative. It needs the public signed
+release and works without Homebrew. Installation requires administrator
+authorization. Run `nightr setup` afterward to approve the helper separately.
 
 ```sh
 nightr setup                 # helper readiness and desktop setup
@@ -33,6 +36,8 @@ nightr start
 nightr status --json         # read-only; does not start a controller
 nightr stop
 ```
+
+Run `nightr update` to update the installed package through its existing owner.
 
 Use `nightr` without a subcommand for foreground monitoring. `nosleep` remains a
 compatibility name. Existing config and Keychain service names are preserved.

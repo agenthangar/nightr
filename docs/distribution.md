@@ -14,13 +14,21 @@ Xcode, developer tools, separately installed Python or source build is needed.
 The DMG also contains an app copy for inspection; dragging that copy does not
 complete the required root-owned package installation.
 
-Homebrew distribution uses a tap cask with the `pkg "Nightr.pkg"` artifact;
-`brew install --cask agenthangar/tap/nightr` is the planned first-install route.
-Do not advertise the cask as available until that tap publishes it. `t` can use
-the same cask or Nightr's verified direct installer without installing Homebrew.
-The signed package's command link is the CLI; a separate CLI formula is not
-needed. CLI-only use of this package does not require the menu bar or a login
-agent.
+Homebrew distribution uses a tap cask with the `pkg "Nightr.pkg"` artifact.
+After the stable signed release and matching cask are published, add the tap
+and then install the cask:
+
+```sh
+brew tap agenthangar/tap
+brew install --cask agenthangar/tap/nightr
+```
+
+Run `t install` and choose **Nightr** under **Desktop Apps** for guided
+installation. Confirming the Homebrew installation adds the AgentHangar tap if
+needed and audits the cask before starting installation. The signed DMG is
+available without Homebrew once the release is published. Both paths use the
+signed package's CLI link. CLI-only use of this package does not require the
+menu bar or a login agent.
 
 After installation, `nightr setup` opens explicit power-helper authorization.
 The helper is a launchd-supervised `SMAppService.daemon` embedded in the signed
@@ -44,13 +52,18 @@ registers this service.
 
 The shared stdlib installer is `scripts/nightr_install.py`. Its internal API is
 `main(["install" | "update" | "check", "--json"])`; `t` vendors this same file.
+`install --homebrew-only` is the internal option for an explicitly selected
+fresh Homebrew installation. It requires a published release manifest before
+adding the fixed AgentHangar tap and stops if it cannot verify the matching cask.
 `check` creates no persistent state, prompt, install or service registration.
 It returns `installed`, `owner`, `version`, `availableVersion` and
 `updateAvailable`. Failure returns a JSON `error` and nonzero exit status.
-`adopt-homebrew` verifies a real cask receipt, the approved cask contract and
-the canonical signed app. `adopt-direct` verifies the package receipt, canonical
-app and published release, then obtains a verified rollback artifact. Adoption
-preserves an existing package owner.
+`adopt-homebrew` verifies the approved cask contract, matching AgentHangar cask
+and package receipts, and the canonical signed app. The first `nightr update`
+for an unrecorded Homebrew install performs these same checks before recording
+its owner. `adopt-direct` verifies the package receipt, canonical app and
+published release, then obtains a verified rollback artifact. Adoption preserves
+an existing package owner.
 
 For a manually installed signed package without an ownership record,
 `nightr setup --direct-updates` explicitly claims direct update ownership. When
@@ -59,9 +72,9 @@ locations to be authoritatively absent. It also asserts that a custom-prefix
 Homebrew does not own this copy; Nightr cannot prove absence in an unknown
 custom prefix. The app's signatures, root ownership, team, version, package
 receipt and rollback artifact still have to verify. A known Homebrew owner,
-any Nightr cask receipt, or a failed receipt query blocks the claim. Automatic
-adoption of an unowned app remains conservative and reports this explicit setup
-route instead of guessing.
+any Nightr cask receipt, or a failed receipt query blocks the direct claim.
+When update cannot establish ownership, it reports the appropriate repair or
+explicit setup route.
 
 The authoritative per-user package record is
 `~/Library/Application Support/Nightr/installation.json` (schema version 1):
@@ -128,10 +141,12 @@ Apple's Installer and receipts are not an atomic filesystem swap.
 Homebrew uses only the reviewed PKG-only cask template. The exact qualified
 cask, version, URL, checksum and absence of extra hooks are checked before the
 same resolved Homebrew executable runs with automatic updating and API
-installation disabled. This is a preflight audit, not atomic source pinning;
+installation disabled. Homebrew's qualified install applies its normal cask
+trust rules. The audit checks the local cask source before execution;
 concurrent changes by the account managing Homebrew or its tap are outside the
-guarantee. An unavailable or different contract fails closed for a Homebrew-owned
-copy; a fresh installation may use the verified direct package instead.
+guarantee. The guided Homebrew choice and updates for Homebrew-owned copies
+stop if the contract is unavailable or has changed. The signed direct package is
+a separate installation choice.
 
 Nightr releases its update gate while Homebrew invokes the guarded package.
 On every exit it reacquires the gate and requires an absent marker, valid

@@ -174,20 +174,17 @@ Update help, command inventory, examples, completion and install/release tests.
 ### Command-first installation and updates
 
 The user's preferred entry points are Homebrew, `t install nightr` and `t update`.
-These interfaces are implemented in the launch branch. Acquisition requires a
-published signed release and Homebrew cask; neither is advertised as available
-before publication.
+Homebrew acquisition requires a public signed release and a matching published
+cask. A verified direct installation requires the public signed release.
 
 - Publish `agenthangar/tap/nightr` as a macOS cask containing the signed app and
-  its CLI binary link. The unambiguous first-install command is
-  `brew install --cask agenthangar/tap/nightr`. After the tap is available/trusted,
-  the short form is `brew install --cask nightr`; do not imply availability in
-  Homebrew's official catalogue or require a separate CLI formula for the app.
-- `t install nightr` installs the same package, preferring the cask when Homebrew
-  is present and the verified prebuilt release otherwise. Include an optional
-  Nightr entry in the existing installer and t config. Do not install Homebrew
-  merely to install Nightr. Keep agent installation routes unchanged: Nightr is
-  an app, not a coding agent. The proposed canonical noun/verb route is
+  its CLI binary link. The manual steps are `brew tap agenthangar/tap` followed
+  by `brew install --cask agenthangar/tap/nightr`.
+- In `t install`, choose Nightr under **Desktop Apps** to start the guided route.
+  Confirming the Homebrew installation allows t to add the fixed tap after
+  checking the public release, then verify the cask before installation.
+  The signed direct package is a separate route for users without Homebrew.
+  Keep agent installation routes unchanged. The canonical noun/verb route is
   `t system apps install nightr`, with `t install nightr` as the requested
   compatibility convenience. Classify both in the command inventory and preview
   the entry, review, cancellation, failure and already-installed states before
@@ -214,9 +211,11 @@ before publication.
   read-only and report each component independently.
 - Keep one update owner per installation. For a Homebrew-owned copy, both t and
   `nightr update` delegate to `brew upgrade --cask agenthangar/tap/nightr`. For a
-  directly installed copy, they use Nightr's signed-release updater. The app's
-  update action follows the same owner. Do not silently convert ownership,
-  overwrite another install, create two apps or run competing updaters.
+  directly installed copy, they use Nightr's signed-release updater. A first
+  update of a manually installed AgentHangar cask verifies its owner before
+  recording it. The app's update action follows the same owner. Do not silently
+  convert ownership, overwrite another install, create two apps or run competing
+  updaters.
 - Scope updates to the installed canonical package, never a development worktree.
   Serialize install/update operations; verify version, checksum and signing;
   preserve configuration, credentials and enabled intent. Coordinate controller
