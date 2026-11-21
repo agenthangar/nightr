@@ -98,10 +98,9 @@ public struct MonitorEngine: Sendable {
             state.desiredEnabled = true; state.pause = nil; state.resumePause = nil; state.crashRestarts = 0
             refreshSamples(now: now); state.internet = .unknown; state.lastInternetVerified = false
         case .settings(let value): pendingSettings = value
-        case .sample(let value):
-            if sample.lidClosed != value.lidClosed { lastConditionCheck = nil; resetConditions() }; sample = value
+        case .sample(let value): sample = value
         case .tick(let value):
-            if sample.lidClosed != value.lidClosed { lastConditionCheck = nil; resetConditions() }; sample = value
+            sample = value
             if let pendingSettings {
                 changedSettings = settings != pendingSettings
                 let previouslyRequiredInternet = settings.monitoring && settings.internet
@@ -174,7 +173,7 @@ public struct MonitorEngine: Sendable {
             if state.pause != .inactivity {
                 if changedSettings || (state.nextConditionRetryAt.map({ now >= $0 }) ?? false) || (lastConditionCheck.map({ now.timeIntervalSince($0) >= Double(settings.every) }) ?? true) {
                     evaluateConditions(now: now, effects: &effects); lastConditionCheck = now
-                } else if !sample.lidClosed && state.pause == nil && !holding { holding = true; effects.append(.acquireHold(settings)) }
+                }
             }
         }
         if verificationEligible {
@@ -210,7 +209,6 @@ public struct MonitorEngine: Sendable {
             return
         }
         // Grace is tracked independently for each selected signal, matching legacy runs.
-        if !sample.lidClosed { resetConditions(); if !holding { holding = true; effects.append(.acquireHold(settings)) }; return }
         if state.pause == .connectivity { release(&effects); return }
         let missing: PauseReason = settings.internet && !internetPass ? .connectivity : .inactivity
         if state.retryFor != missing {
