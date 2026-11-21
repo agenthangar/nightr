@@ -95,35 +95,6 @@ public struct GUIPresentationState: Equatable, Sendable {
     public mutating func reopen() { menuVisible = true }
 }
 
-/// SwiftUI may echo MenuBarExtra insertion while updating its scene graph.
-/// Never publish from that setter stack: defer genuine changes and keep only
-/// its latest observation, including an unchanged echo that cancels a queued one.
-@MainActor public final class GUIMenuVisibilityFeedback {
-    private let read: () -> Bool
-    private let publish: (Bool) -> Void
-    private let schedule: (@escaping @MainActor () -> Void) -> Void
-    private var pending: Bool?
-    private var scheduled = false
-    public init(read: @escaping () -> Bool, publish: @escaping (Bool) -> Void,
-                schedule: @escaping (@escaping @MainActor () -> Void) -> Void = { work in DispatchQueue.main.async { work() } }) {
-        self.read = read; self.publish = publish; self.schedule = schedule
-    }
-    public func receive(_ visible: Bool) {
-        pending = visible
-        guard !scheduled else { return }
-        guard visible != read() else { pending = nil; return }
-        scheduled = true
-        schedule { [weak self] in self?.flush() }
-    }
-    public func invalidate() { pending = nil }
-    private func flush() {
-        scheduled = false
-        guard let visible = pending else { return }
-        pending = nil
-        if visible != read() { publish(visible) }
-    }
-}
-
 /// A later Stop or Quit invalidates a Start that is waiting for reconnection.
 public final class GUIStartIntent: @unchecked Sendable {
     private let lock = NSLock()

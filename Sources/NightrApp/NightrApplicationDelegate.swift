@@ -1,0 +1,156 @@
+#if os(macOS)
+import AppKit
+import Combine
+import SwiftUI
+import NightrCore
+
+@MainActor final class NightrApplicationDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    private let model: AppModel
+    private var statusItem: NSStatusItem?
+    private var statusLabel: AnyCancellable?
+    private var settingsWindow: NSWindow?
+    private lazy var popover = makeMenuPopover(hosting: PopoverHost(model: model) { [weak self] in
+        self?.openSettings()
+    })
+
+    init(model: AppModel) {
+        self.model = model
+        super.init()
+        GUIEventInbox.connect(self)
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        installApplicationMenu()
+        insertStatusItemIfNeeded()
+        GUIEventInbox.didFinishLaunching()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        GUIEventInbox.reopen()
+        return false
+    }
+
+    func receive(_ route: GUISettingsRoute) { openSettings(route: route) }
+
+    func reopen() {
+        promotePresentation()
+        if let settingsWindow { front(settingsWindow) }
+        else { NSApp.activate(ignoringOtherApps: true) }
+    }
+
+    private func promotePresentation(route: GUISettingsRoute? = nil) {
+        var next = model.presentation
+        if let route { next.receive(route) } else { next.reopen() }
+        if next != model.presentation { model.presentation = next }
+        insertStatusItemIfNeeded()
+    }
+
+    private func insertStatusItemIfNeeded() {
+        guard model.presentation.menuVisible, statusItem == nil else { return }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem = item
+        guard let button = item.button else { return }
+        button.image = MoonSparkArtwork.menuImage
+        button.target = self
+        button.action = #selector(togglePopover(_:))
+        statusLabel = model.$status.combineLatest(model.$error)
+            .map { status, error in GUIProtectionSummary(status: status, error: error).label }
+            .removeDuplicates()
+            .sink { [weak button] label in button?.setAccessibilityLabel("Nightr, \(label)") }
+    }
+
+    @objc private func togglePopover(_ sender: NSStatusBarButton) {
+        if let settingsWindow {
+            front(settingsWindow)
+        } else if popover.isShown {
+            popover.close()
+        } else {
+            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+        }
+    }
+
+    @objc private func showSettings(_ sender: Any?) { openSettings() }
+
+    private func openSettings(route: GUISettingsRoute? = nil) {
+        if popover.isShown { popover.close() }
+        promotePresentation(route: route)
+        if let settingsWindow {
+            front(settingsWindow)
+            return
+        }
+        let view = SettingsHost(model: model) { [weak self] in self?.settingsWindow?.close() }
+        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+        window.title = "Nightr Settings"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        settingsWindow = window
+        window.center()
+        front(window)
+    }
+
+    private func front(_ window: NSWindow) {
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    func windowWillClose(_ notification: Notification) { settingsWindow = nil }
+
+    @objc private func stopAndQuit(_ sender: Any?) { model.quit() }
+
+    private func installApplicationMenu() {
+        let main = NSMenu()
+        let appItem = main.addItem(withTitle: "Nightr", action: nil, keyEquivalent: "")
+        let appMenu = NSMenu(title: "Nightr")
+        appItem.submenu = appMenu
+        appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",").target = self
+        appMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Stop and Quit", action: #selector(stopAndQuit(_:)), keyEquivalent: "q").target = self
+
+        let editItem = main.addItem(withTitle: "Edit", action: nil, keyEquivalent: "")
+        let edit = NSMenu(title: "Edit")
+        editItem.submenu = edit
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        NSApp.mainMenu = main
+    }
+}
+
+@MainActor func makeMenuPopover<Content: View>(hosting content: Content) -> NSPopover {
+    let popover = NSPopover()
+    popover.behavior = .transient
+    // Complete a close before Settings opens, including during rapid handoffs.
+    popover.animates = false
+
+    let host = NSHostingController(rootView: content
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGSize.self, of: \.size) { [weak popover] size in
+            let fitted = CGSize(width: ceil(size.width), height: ceil(size.height))
+            guard let popover, fitted.width > 0, fitted.height > 0, fitted != popover.contentSize else { return }
+            popover.contentSize = fitted
+        })
+    let initialSize = host.view.fittingSize
+    host.view.frame.size = initialSize
+    popover.contentViewController = host
+    popover.contentSize = initialSize
+    return popover
+}
+
+private struct PopoverHost: View {
+    @ObservedObject var model: AppModel
+    let settings: () -> Void
+
+    var body: some View {
+        NightrPopover(status: model.status, error: model.error, command: { model.command($0) },
+                      settings: settings, setup: {
+                          do { try DesktopSetup.complete() } catch { model.error = error.localizedDescription }
+                      }, quit: { model.quit() }, wifiSettings: { DesktopSetup.systemWiFi() })
+    }
+}
+#endif

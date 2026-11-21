@@ -138,51 +138,6 @@ final class GUIRoutingTests: XCTestCase {
         XCTAssertEqual(queue.drain(ready: true), [.reopen])
     }
 
-    @MainActor func testMenuVisibilityFeedbackNeverPublishesOnSetterStack() async {
-        let fixture = GUIMenuVisibilityFixture()
-        fixture.feedback.receive(false)
-        XCTAssertTrue(fixture.visible)
-        XCTAssertEqual(fixture.publications, [])
-        XCTAssertEqual(fixture.scheduled.count, 1)
-    }
-    @MainActor func testUnchangedVisibilityIsNoOpAndCancelsOlderQueuedChange() async {
-        let fixture = GUIMenuVisibilityFixture()
-        fixture.feedback.receive(true)
-        XCTAssertEqual(fixture.scheduled.count, 0)
-        fixture.feedback.receive(false)
-        fixture.feedback.receive(true)
-        fixture.drain()
-        XCTAssertTrue(fixture.visible)
-        XCTAssertEqual(fixture.publications, [])
-        XCTAssertEqual(fixture.scheduled.count, 0)
-    }
-    @MainActor func testDeferredVisibilityPublishesOnceAndEchoBecomesQuiescent() async {
-        let fixture = GUIMenuVisibilityFixture()
-        fixture.echo = true
-        fixture.feedback.receive(false)
-        fixture.drain()
-        XCTAssertFalse(fixture.visible)
-        XCTAssertEqual(fixture.publications, [false])
-        XCTAssertEqual(fixture.scheduled.count, 0)
-    }
-    @MainActor func testRapidVisibilityFeedbackCoalescesToLatestValue() async {
-        let fixture = GUIMenuVisibilityFixture()
-        fixture.feedback.receive(false); fixture.feedback.receive(true); fixture.feedback.receive(false)
-        XCTAssertEqual(fixture.scheduled.count, 1)
-        XCTAssertEqual(fixture.publications, [])
-        fixture.drain()
-        XCTAssertEqual(fixture.publications, [false])
-    }
-    @MainActor func testExplicitPromotionInvalidatesQueuedHide() async {
-        let fixture = GUIMenuVisibilityFixture()
-        fixture.feedback.receive(false)
-        fixture.feedback.invalidate()
-        fixture.promote()
-        fixture.drain()
-        XCTAssertTrue(fixture.visible)
-        XCTAssertEqual(fixture.publications, [])
-    }
-
     func testCancelledQueuedStartDoesNotReachTransport() async throws {
         let record = GUICommandRecord()
         let commands = GUIControllerCommands { request in record.append(request.command); return ControllerResponse() }
@@ -246,24 +201,4 @@ private final class GUICommandRecord: @unchecked Sendable {
     private var values: [ControllerCommand] = []
     func append(_ command: ControllerCommand) { lock.lock(); values.append(command); lock.unlock() }
     var commands: [ControllerCommand] { lock.lock(); defer { lock.unlock() }; return values }
-}
-
-@MainActor private final class GUIMenuVisibilityFixture {
-    var visible = true
-    var echo = false
-    var publications: [Bool] = []
-    var scheduled: [@MainActor () -> Void] = []
-    lazy var feedback: GUIMenuVisibilityFeedback = GUIMenuVisibilityFeedback(
-        read: { [unowned self] in visible },
-        publish: { [unowned self] value in
-            visible = value; publications.append(value)
-            if echo { feedback.receive(value) }
-        }, schedule: { [unowned self] work in scheduled.append(work) })
-    func promote() {
-        if !visible { visible = true; publications.append(true) }
-    }
-    func drain() {
-        let work = scheduled; scheduled.removeAll()
-        work.forEach { $0() }
-    }
 }

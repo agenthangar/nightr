@@ -11,6 +11,7 @@ import NightrController
         _ = NSApplication.shared
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         try checkArtwork()
+        checkMenuSizing()
         var draft = NightrCore.Settings(); draft.hotspot = true; draft.hotspotSSID = "Sample iPhone · exact long SSID"; draft.every = 900
         for dark in [false, true] {
             let scheme: ColorScheme = dark ? .dark : .light
@@ -39,10 +40,32 @@ import NightrController
             labels.insert(summary.label); symbols.insert(summary.symbol)
         }
         precondition(labels.count == 5 && symbols.count == 5)
-        try checkVisibilityFeedback()
         try checkRegistration()
         try checkSettingsReceipt(in: output)
-        print("Rendered 18 actual native view fixtures; artwork, launch/state and visibility-feedback and synthetic-registration contracts passed.")
+        print("Rendered 18 actual native view fixtures; artwork, popover sizing, launch/state and synthetic-registration contracts passed.")
+    }
+    private static func checkMenuSizing() {
+        let fixture = MenuFixture(status: sample("On"))
+        let popover = makeMenuPopover(hosting: MenuFixtureHost(fixture: fixture))
+        let initial = popover.contentSize
+        precondition(popover.behavior == .transient && !popover.animates)
+        precondition(initial.width == 318 && initial.height > 200)
+        fixture.status = sample("Recovering")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        popover.contentViewController?.view.layoutSubtreeIfNeeded()
+        precondition(popover.contentSize.width == initial.width && popover.contentSize.height > initial.height)
+        fixture.status = sample("On")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        popover.contentViewController?.view.layoutSubtreeIfNeeded()
+        precondition(popover.contentSize == initial)
+    }
+    private final class MenuFixture: ObservableObject {
+        @Published var status: ControllerStatus
+        init(status: ControllerStatus) { self.status = status }
+    }
+    private struct MenuFixtureHost: View {
+        @ObservedObject var fixture: MenuFixture
+        var body: some View { NightrPopover(status: fixture.status, error: nil) }
     }
     private static func checkSettingsReceipt(in output: URL) throws {
         let directory = output.appendingPathComponent("save-contract")
@@ -85,23 +108,6 @@ import NightrController
             if pendingAfterRegister { throw DesktopServiceError("Synthetic pending approval") }
         }
         func unregister() throws { actions.append("unregister"); status = .notRegistered }
-    }
-    private static func checkVisibilityFeedback() throws {
-        var visible = true
-        var scheduled: [@MainActor () -> Void] = []
-        var publications: [Bool] = []
-        let feedback = GUIMenuVisibilityFeedback(read: { visible }, publish: { visible = $0; publications.append($0) }, schedule: { scheduled.append($0) })
-        feedback.receive(false)
-        precondition(visible && publications.isEmpty && scheduled.count == 1)
-        feedback.receive(true)
-        let cancelled = scheduled; scheduled.removeAll(); cancelled.forEach { $0() }
-        precondition(visible && publications.isEmpty)
-        feedback.receive(false); feedback.receive(true); feedback.receive(false)
-        let coalesced = scheduled; scheduled.removeAll(); coalesced.forEach { $0() }
-        precondition(!visible && publications == [false])
-        feedback.receive(true); feedback.invalidate()
-        let invalidated = scheduled; scheduled.removeAll(); invalidated.forEach { $0() }
-        precondition(!visible && publications == [false])
     }
     private static func render<V: View>(_ view: V, size: NSSize?, dark: Bool, to url: URL) throws {
         let host = NSHostingView(rootView: view)

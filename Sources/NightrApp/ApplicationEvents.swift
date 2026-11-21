@@ -2,26 +2,17 @@
 import AppKit
 import NightrCore
 
-/// SwiftUI retains this delegate even when the menu extra is not inserted.
-@MainActor final class NightrApplicationDelegate: NSObject, NSApplicationDelegate {
-    func applicationDidFinishLaunching(_ notification: Notification) { GUIEventInbox.didFinishLaunching() }
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        GUIEventInbox.reopen()
-        return false
-    }
-}
-
 /// Model construction and presentation delivery may arrive in either order.
-/// Queue only allowlisted presentation events until both AppKit and model exist.
+/// Queue only allowlisted presentation events until both AppKit and its delegate are ready.
 @MainActor private enum GUIEventInboxStorage {
-    static weak var model: AppModel?
+    static weak var delegate: NightrApplicationDelegate?
     static var launched = false
     static var queue = GUIEventQueue()
     static func drain() {
-        guard launched, let model else { return }
+        guard launched, let delegate else { return }
         let events = queue.drain(ready: true)
         for event in events {
-            switch event { case .settings(let route): model.receive(route); case .reopen: model.reopen() }
+            switch event { case .settings(let route): delegate.receive(route); case .reopen: delegate.reopen() }
         }
     }
 }
@@ -49,7 +40,7 @@ import NightrCore
 }
 
 @MainActor enum GUIEventInbox {
-    static func connect(_ model: AppModel) { GUIEventInboxStorage.model = model; GUIEventInboxStorage.drain() }
+    static func connect(_ delegate: NightrApplicationDelegate) { GUIEventInboxStorage.delegate = delegate; GUIEventInboxStorage.drain() }
     static func didFinishLaunching() { GUIEventInboxStorage.launched = true; GUIEventInboxStorage.drain() }
     static func receive(_ route: GUISettingsRoute) {
         GUIEventInboxStorage.queue.receive(route); GUIEventInboxStorage.drain()
