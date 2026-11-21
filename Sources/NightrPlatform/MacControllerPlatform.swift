@@ -249,9 +249,9 @@ public actor MacControllerPlatform: ControllerPlatform {
                     return String(decoding: data, as: UTF8.self)
                 }
                 let processes = text("/bin/ps", ["-Axo", "pid=,ppid=,comm="])
-                let agents = AgentActivity.processes(processes).filter { AgentActivity.isAgent($0.command) }
-                let arguments = ["-x", "-n", "-s", "1", "-L", "1"] + agents.flatMap { ["-p", String($0.pid)] } + ["-J", "bytes_in,bytes_out"]
-                let network = agents.isEmpty ? "" : text("/usr/bin/nettop", arguments)
+                let network = AgentActivity.networkSampleArguments(processes: processes).map {
+                    text("/usr/bin/nettop", $0)
+                } ?? ""
                 return (processes, text("/usr/bin/pmset", ["-g", "assertions"]), network)
             }.value
             activityBusy = activity.observe(processes: observation.0, assertions: observation.1, network: observation.2, now: Date())
