@@ -8,75 +8,30 @@ import NightrCore
 import NightrController
 import NightrPlatform
 
-@MainActor final class AppModel: NSObject, ObservableObject, NSWindowDelegate {
+@MainActor final class AppModel: NSObject, ObservableObject {
     @Published var status: ControllerStatus?
     @Published var error: String?
     @Published var presentation = GUIPresentationState(headless: GUILaunchConfiguration(arguments: CommandLine.arguments).headless)
     private var settingsRequests: GUISettingsNotificationReceiver?
-    private var settingsWindow: NSWindow?
     private var service: ControllerService?
     private var events: MacSystemEvents?
     private var poll: Task<Void, Never>?
     private var connecting: Task<Bool, Never>?
-    private lazy var menuVisibilityFeedback = GUIMenuVisibilityFeedback(
-        read: { [weak self] in self?.presentation.menuVisible ?? false },
-        publish: { [weak self] visible in
-            guard let self else { return }
-            var next = self.presentation; next.menuVisible = visible
-            self.publishPresentation(next)
-        })
     private let startIntent = GUIStartIntent()
     private let controllerCommands = GUIControllerCommands { try ControllerClient().request($0) }
     let store = SettingsStore()
     override init() {
         super.init()
         settingsRequests = GUISettingsNotificationReceiver()
-        GUIEventInbox.connect(self)
-        if CommandLine.arguments.contains("--setup-helper-only") {
-            do {
-                try DesktopSetup.helper()
-                let status = SMAppService.daemon(plistName: "ai.nightr.powerhelper.plist").status
-                if status == .enabled { exit(0) }
-                FileHandle.standardError.write(Data("Complete Nightr helper approval in System Settings → Login Items.\n".utf8)); exit(2)
-            } catch {
-                FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
-                exit(SMAppService.daemon(plistName: "ai.nightr.powerhelper.plist").status == .requiresApproval ? 2 : 1)
-            }
-        }
         Task {
             if GUILaunchConfiguration(arguments: CommandLine.arguments).startup == .presentation {
                 await refresh()
                 beginPolling()
             } else { _ = await boot(initialLaunch: true) }
-            if CommandLine.arguments.contains("--setup") { receive(.general) }
-            if CommandLine.arguments.contains("--hotspot-setup") || CommandLine.arguments.contains("--enable-discovery") { receive(.connectivity) }
+            if CommandLine.arguments.contains("--setup") { GUIEventInbox.receive(.general) }
+            if CommandLine.arguments.contains("--hotspot-setup") || CommandLine.arguments.contains("--enable-discovery") { GUIEventInbox.receive(.connectivity) }
         }
     }
-    func menuVisibilityChanged(_ visible: Bool) { menuVisibilityFeedback.receive(visible) }
-    private func publishPresentation(_ next: GUIPresentationState) {
-        if next != presentation { presentation = next }
-    }
-    private func promotePresentation(route: GUISettingsRoute? = nil) {
-        menuVisibilityFeedback.invalidate()
-        var next = presentation
-        if let route { next.receive(route) } else { next.reopen() }
-        publishPresentation(next)
-    }
-    func receive(_ route: GUISettingsRoute) {
-        promotePresentation(route: route)
-        openSettings()
-    }
-    func reopen() { promotePresentation(); NSApp.activate(ignoringOtherApps: true) }
-    func openSettings() {
-        promotePresentation()
-        if let settingsWindow { settingsWindow.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
-        let view = SettingsHost(model: self) { [weak self] in self?.settingsWindow?.close(); self?.settingsWindow = nil }
-        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-        window.title = "Nightr Settings"; window.styleMask = [.titled, .closable]
-        window.isReleasedWhenClosed = false; window.delegate = self
-        settingsWindow = window; window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
-    }
-    func windowWillClose(_ notification: Notification) { settingsWindow = nil }
 
     @discardableResult func boot(initialLaunch: Bool = false) async -> Bool {
         if let service, await service.isRunning() { return true }
@@ -182,7 +137,6 @@ import NightrPlatform
             // Durable settings are sufficient when no owner exists.
         }
     }
-    var label: String { GUIProtectionSummary(status: status, error: error).label }
     func quit() {
         startIntent.cancel()
         Task {
@@ -201,6 +155,18 @@ import NightrPlatform
 
 
 @MainActor enum DesktopSetup {
+    static func runHelperCommand() -> Never {
+        let service = SMAppService.daemon(plistName: "ai.nightr.powerhelper.plist")
+        do {
+            try helper()
+            if service.status == .enabled { exit(0) }
+            FileHandle.standardError.write(Data("Complete Nightr helper approval in System Settings → Login Items.\n".utf8))
+            exit(2)
+        } catch {
+            FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
+            exit(service.status == .requiresApproval ? 2 : 1)
+        }
+    }
     static func notifications() async throws {
         _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
     }

@@ -3,32 +3,21 @@ import SwiftUI
 import AppKit
 import NightrCore
 
-@main struct NightrApp: App {
-    @NSApplicationDelegateAdaptor(NightrApplicationDelegate.self) private var applicationDelegate
-    @StateObject private var model: AppModel
-    init() {
+@main struct NightrApp {
+    @MainActor static func main() {
         #if DEBUG
         if let index = CommandLine.arguments.firstIndex(of: "--render-presentations"), CommandLine.arguments.count > index + 1 {
             do { try NativePresentationRenderer.run(output: URL(fileURLWithPath: CommandLine.arguments[index + 1])); exit(0) }
             catch { FileHandle.standardError.write(Data("Offscreen rendering failed: \(error)\n".utf8)); exit(1) }
         }
         #endif
-        // Controller-only launches must eagerly boot even though the menu extra
-        // is not inserted and SwiftUI never evaluates its content.
-        let instance = AppModel()
-        _model = StateObject(wrappedValue: instance)
-    }
-    var body: some Scene {
-        MenuBarExtra(isInserted: Binding(get: { model.presentation.menuVisible }, set: { model.menuVisibilityChanged($0) })) {
-            NightrPopover(status: model.status, error: model.error,
-                command: { model.command($0) }, settings: { model.openSettings() },
-                setup: { do { try DesktopSetup.complete() } catch { model.error = error.localizedDescription } },
-                quit: { model.quit() }, wifiSettings: { DesktopSetup.systemWiFi() })
-        } label: {
-            Image(nsImage: MoonSparkArtwork.menuImage)
-                .accessibilityLabel("Nightr, \(model.label)")
-        }
-        .menuBarExtraStyle(.window)
+        if CommandLine.arguments.contains("--setup-helper-only") { DesktopSetup.runHelperCommand() }
+
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        let delegate = NightrApplicationDelegate(model: AppModel())
+        app.delegate = delegate
+        withExtendedLifetime(delegate) { app.run() }
     }
 }
 
