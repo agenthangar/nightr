@@ -89,11 +89,13 @@ at a controller loop boundary. Saving preferences does not silently install a
 privileged helper. Imported requirement policies and any stored `inactivity`
 value survive unrelated app edits; the app has no separate inactivity timer.
 
-Updates follow the recorded Homebrew or direct-install owner. They preserve
-configuration, credentials and enabled intent, and refuse concurrent active
-controllers that cannot be safely quiesced. An incomplete installation transaction
-blocks new protection until a trusted installation repair succeeds. A regular
-update does not acquire a previously absent app.
+Updates follow the Homebrew or direct-install owner. When a manually installed
+AgentHangar cask has no Nightr ownership record, `nightr update` verifies the
+approved cask and the installed signed package before recording Homebrew as its
+owner. Updates preserve configuration, credentials and enabled intent, and refuse
+concurrent active controllers that cannot be safely quiesced. An incomplete
+installation transaction blocks new protection until a trusted installation
+repair succeeds. A regular update does not acquire a previously absent app.
 
 ## MCP server
 
