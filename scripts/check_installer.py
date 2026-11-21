@@ -21,7 +21,7 @@ import nightr_install as installer
 ROOT = Path(__file__).resolve().parent.parent
 LINK = Path('/usr/local/bin/nightr')
 STATE = installer.GLOBAL_LOCK.parent
-UNTESTED = ['helper/login authorization', 'version-changing update', 'reboot recovery',
+UNTESTED = ['graphical Installer launch', 'helper/login authorization', 'version-changing update', 'reboot recovery',
             'setup --check (production sampling deferred; no helper readiness asserted)']
 
 
@@ -152,9 +152,12 @@ def accept(args, report):
                     capture_install_log(report)
                     raise
                 verify_installation(args.team_id, args.version)
+                if run(['/usr/bin/pgrep', '-x', 'NightrApp'], allowed=(0, 1)).returncode == 0:
+                    raise RuntimeError('Command-line installer unexpectedly opened Nightr')
                 report[stage] = 'passed'
     report['status'] = 'passed_limited_acceptance'
     report['helperStatus'] = 'unregistered; readiness not asserted'
+    report['desktopAppStatus'] = 'closed after command-line installation'
 
 
 def main(argv=None):

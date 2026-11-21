@@ -37,17 +37,20 @@ import NightrPlatform
         if let service, await service.isRunning() { return true }
         if let connecting { return await connecting.value }
         poll?.cancel(); poll = nil
-        let connection = Task { @MainActor [weak self] in await self?.connectController() ?? false }
+        let launch = GUILaunchConfiguration(arguments: CommandLine.arguments)
+        let connection = Task { @MainActor [weak self] in
+            await self?.connectController(afterDesktopInstall: initialLaunch && launch.afterDesktopInstall) ?? false
+        }
         connecting = connection
         let connected = await connection.value
         connecting = nil
-        if initialLaunch && GUILaunchConfiguration(arguments: CommandLine.arguments).exitsAfterConnectingToExistingOwner && service == nil {
+        if initialLaunch && launch.exitsAfterConnectingToExistingOwner && service == nil {
             exit(connected ? 0 : 1)
         }
         beginPolling()
         return connected
     }
-    private func connectController() async -> Bool {
+    private func connectController(afterDesktopInstall: Bool) async -> Bool {
         service = nil; events = nil
         do {
             let response = try await Task.detached { try ControllerClient().request(.init(command: .status)) }.value
@@ -58,7 +61,7 @@ import NightrPlatform
         } catch { self.error = error.localizedDescription; return false }
         do {
             let owner = try ControllerService(platform: MacControllerPlatform())
-            try await owner.start()
+            try await owner.start(afterDesktopInstall: afterDesktopInstall)
             service = owner
             events = MacSystemEvents { event in Task { await owner.send(event) } }
             status = await owner.status(); error = nil

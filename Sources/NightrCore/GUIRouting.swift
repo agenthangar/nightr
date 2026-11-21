@@ -32,10 +32,12 @@ public enum GUIStartupMode: Equatable, Sendable {
 public struct GUILaunchConfiguration: Equatable, Sendable {
     public let startup: GUIStartupMode
     public let headless: Bool
+    public let afterDesktopInstall: Bool
     public var exitsAfterConnectingToExistingOwner: Bool { headless && startup == .controller }
     public init(arguments: [String]) {
         startup = GUIStartupMode(arguments: arguments)
         headless = arguments.contains("--controller-only") && startup == .controller
+        afterDesktopInstall = startup == .controller && !headless && arguments.contains("--after-install")
     }
 }
 

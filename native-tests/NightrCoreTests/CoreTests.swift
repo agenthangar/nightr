@@ -136,6 +136,36 @@ final class CoreTests: XCTestCase {
         _ = exhausted.handle(.normalWake, now: now)
         XCTAssertFalse(exhausted.holding)
     }
+    func testDesktopInstallRestoresEnabledIntentIndependentlyOfLoginPreference() {
+        var settings = Settings(); settings.launchAtLogin = false; settings.forever = true
+        var enabled = ControllerState(); enabled.desiredEnabled = true; enabled.pause = nil
+        var resumed = MonitorEngine(settings: settings, state: enabled)
+        _ = resumed.handle(.bootstrap(wasUnclean: false, afterDesktopInstall: true), now: now)
+        XCTAssertTrue(resumed.holding)
+        XCTAssertTrue(resumed.state.desiredEnabled)
+
+        var login = MonitorEngine(settings: settings, state: enabled)
+        _ = login.handle(.bootstrap(wasUnclean: false), now: now)
+        XCTAssertFalse(login.holding)
+        XCTAssertEqual(login.state.pause, .loginOptOut)
+    }
+    func testDesktopInstallRespectsStoppedIntentAndSafetyPauses() {
+        var settings = Settings(); settings.launchAtLogin = false; settings.forever = true
+        settings.batteryProtection = true
+        let afterInstall = MonitorEvent.bootstrap(wasUnclean: false, afterDesktopInstall: true)
+        var stopped = MonitorEngine(settings: settings)
+        _ = stopped.handle(afterInstall, now: now)
+        XCTAssertFalse(stopped.holding)
+        XCTAssertFalse(stopped.state.desiredEnabled)
+        XCTAssertEqual(stopped.state.pause, .stopped)
+
+        var enabled = ControllerState(); enabled.desiredEnabled = true; enabled.pause = nil
+        var battery = MonitorEngine(settings: settings, state: enabled, sample: MachineSample(onBattery: true, batteryPercent: 5))
+        _ = battery.handle(afterInstall, now: now)
+        XCTAssertFalse(battery.holding)
+        XCTAssertEqual(battery.state.pause, .battery)
+        XCTAssertTrue(battery.state.desiredEnabled)
+    }
     func testConditionCadenceAndBackoffDeadlines() {
         var settings = Settings(); settings.internet = false; settings.grace = 0; settings.retries = 3
         var engine = MonitorEngine(settings: settings, sample: MachineSample(lidClosed: true))

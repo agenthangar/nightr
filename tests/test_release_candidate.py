@@ -93,7 +93,7 @@ def test_existing_receipt_is_refused(monkeypatch):
     with pytest.raises(RuntimeError, match='existing Nightr package receipt'): acceptance.require_fresh()
 
 
-@pytest.mark.parametrize('failure', [None, 'freshInstall', 'samePackageReinstall'])
+@pytest.mark.parametrize('failure', [None, 'freshInstall', 'samePackageReinstall', 'unexpectedLaunch'])
 def test_acceptance_installs_real_package_twice_and_keeps_failure_state(tmp_path, monkeypatch, failure):
     events = []
     monkeypatch.setattr(acceptance, 'require_disposable', lambda opt: events.append('gate'))
@@ -106,6 +106,11 @@ def test_acceptance_installs_real_package_twice_and_keeps_failure_state(tmp_path
     monkeypatch.setattr(acceptance.installer, 'mounted_dmg', mount)
     monkeypatch.setattr(acceptance.installer, 'verify_package', lambda *a: events.append('verify package'))
     def run(command, **kwargs):
+        if command[0] == '/usr/bin/pgrep':
+            assert command == ['/usr/bin/pgrep', '-x', 'NightrApp']
+            assert kwargs['allowed'] == (0, 1)
+            events.append('check app is closed')
+            return SimpleNamespace(returncode=0 if failure == 'unexpectedLaunch' else 1)
         events.append('install' if command[0] == '/usr/bin/sudo' else 'verify release')
         if command[0] == '/usr/bin/sudo':
             assert command == ['/usr/bin/sudo', '-n', '/usr/sbin/installer', '-verboseR', '-dumplog', '-pkg', tmp_path / 'Nightr.pkg', '-target', '/']
@@ -119,7 +124,11 @@ def test_acceptance_installs_real_package_twice_and_keeps_failure_state(tmp_path
     monkeypatch.setattr(acceptance, 'verify_installation', verify)
     args = SimpleNamespace(disposable_github_runner=True, dmg=tmp_path / 'signed.dmg', team_id='TEAM123456', version='0.1.0')
     report = {'status': 'failed'}
-    if failure:
+    if failure == 'unexpectedLaunch':
+        with pytest.raises(RuntimeError, match='unexpectedly opened Nightr'): acceptance.accept(args, report)
+        assert report['freshInstall'] == 'started'
+        assert report['status'] == 'failed'
+    elif failure:
         with pytest.raises(RuntimeError, match='pending marker'): acceptance.accept(args, report)
         assert report[failure] == 'started'
         assert report['status'] == 'failed'
@@ -127,9 +136,11 @@ def test_acceptance_installs_real_package_twice_and_keeps_failure_state(tmp_path
         acceptance.accept(args, report)
         assert report['freshInstall'] == report['samePackageReinstall'] == 'passed'
         assert report['status'] == 'passed_limited_acceptance'
+        assert report['desktopAppStatus'] == 'closed after command-line installation'
+        assert events.count('check app is closed') == 2
     assert events[:5] == ['gate', 'fresh check', 'verify release', 'mount', 'verify package']
     assert events[-1] == 'detach'
-    assert events.count('install') == (1 if failure == 'freshInstall' else 2)
+    assert events.count('install') == (1 if failure in ('freshInstall', 'unexpectedLaunch') else 2)
 
 
 def test_failed_acceptance_writes_honest_report(tmp_path, monkeypatch):

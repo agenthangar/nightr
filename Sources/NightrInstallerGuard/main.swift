@@ -207,15 +207,19 @@ func installerInvocation() throws -> String {
     return "\(source.path):\(file.st_dev):\(file.st_ino):\(directory.st_dev):\(directory.st_ino)"
 }
 
-func run(_ executable: String, _ arguments: [String]) throws -> Data {
+func run(_ executable: String, _ arguments: [String], captureOutput: Bool = true) throws -> Data {
     let process = Process(); process.executableURL = URL(fileURLWithPath: executable)
     process.arguments = arguments; process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C"]
-    let pipe = Pipe(); process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
+    let pipe = captureOutput ? Pipe() : nil
+    process.standardOutput = (pipe as Any?) ?? FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice; process.standardInput = FileHandle.nullDevice
     let done = DispatchSemaphore(value: 0); process.terminationHandler = { _ in done.signal() }
     try process.run()
     if done.wait(timeout: .now() + 15) == .timedOut { kill(process.processIdentifier, SIGKILL); process.waitUntilExit(); throw InstallGuardError.systemFailure }
-    let data = pipe.fileHandleForReading.readData(ofLength: 65537)
-    try require(process.terminationStatus == 0 && data.count <= 65536); return data
+    let data = pipe?.fileHandleForReading.readData(ofLength: 65537) ?? Data()
+    if captureOutput { try require(process.terminationStatus == 0 && data.count <= 65536) }
+    else if process.terminationStatus != 0 { throw InstallGuardError.systemFailure }
+    return data
 }
 func installedVersion(receipt: Bool) throws -> String {
     try protectedPath(appPath, stop: "/Applications")
@@ -239,7 +243,7 @@ func installedVersion(receipt: Bool) throws -> String {
     }
     return version
 }
-func main() throws {
+func completeGuardOperation() throws -> Bool {
     try require(geteuid() == 0); try verifySelf()
     let args = Array(CommandLine.arguments.dropFirst())
     try require(!args.isEmpty)
@@ -284,8 +288,11 @@ func main() throws {
         try require(try installedVersion(receipt: false) == BuildPolicy.version)
         try require(try lockOwner(update) == owner)
         let completed = try InstallPolicy.complete(existing, owner: owner, request: request, packagePath: args[1], version: BuildPolicy.version, teamID: BuildPolicy.teamID)
-        if owner == nil { try store.clear(existing.generation) }
-        else { try store.save(completed, replacing: existing.generation) }
+        if owner == nil {
+            try store.clear(existing.generation)
+            return true
+        }
+        try store.save(completed, replacing: existing.generation)
     } else if operation == "finish" {
         try require(args.count == 2)
         guard let existing, let transaction = UUID(uuidString: args[1]) else { throw InstallGuardError.invalidRequest }
@@ -303,10 +310,15 @@ func main() throws {
     } else if operation == "repair" {
         try require(args.count == 1 && owner == nil)
         try exclusiveRecordLock(update); try require(flock(controller, LOCK_EX | LOCK_NB) == 0)
-        guard let existing else { return }
+        guard let existing else { return false }
         let version = try installedVersion(receipt: true)
         try InstallPolicy.repair(existing, installedVersion: version, teamID: BuildPolicy.teamID, currentBootID: currentBoot)
         try store.clear(existing.generation)
     } else { throw InstallGuardError.invalidRequest }
+    return false
 }
-do { try main() } catch { fputs("Nightr installer guard refused the operation: \(error)\n", stderr); exit(78) }
+do {
+    // The operation must return and release its transaction locks before the
+    // app can acquire its controller lock.
+    if try completeGuardOperation() { reopenDesktopApp() }
+} catch { fputs("Nightr installer guard refused the operation: \(error)\n", stderr); exit(78) }
