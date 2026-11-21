@@ -81,6 +81,24 @@ final class PlatformTests: XCTestCase {
         XCTAssertTrue(detector.observe(processes: "", assertions: "pid 12(Claude): [0x0] 00:01:01 PreventUserIdleSystemSleep named: Electron", network: "", now: Date()))
         XCTAssertFalse(detector.observe(processes: "", assertions: "pid 12(ChatGPT): [0x0] PreventUserIdleDisplaySleep named: Capturing", network: "", now: Date()))
     }
+    func testActivitySamplingAboveNettopFilterLimitIncludesEveryAgent() throws {
+        let twenty = (100..<120).map { "\($0) 1 /usr/local/bin/codex" }.joined(separator: "\n")
+        let processes = twenty + "\n120 1 /usr/local/bin/codex\n200 1 /usr/bin/curl"
+        XCTAssertNil(AgentActivity.networkSampleArguments(processes: "200 1 /usr/bin/curl"))
+        let filtered = try XCTUnwrap(AgentActivity.networkSampleArguments(processes: twenty))
+        XCTAssertEqual(filtered.filter { $0 == "-p" }.count, 20)
+        let unfiltered = try XCTUnwrap(AgentActivity.networkSampleArguments(processes: processes))
+        XCTAssertEqual(unfiltered, ["-x", "-n", "-s", "1", "-L", "1", "-J", "bytes_in,bytes_out"])
+
+        func sample(agent: Int, unrelated: Int) -> String {
+            "codex.120,,,\ntcp4 agent,\(agent),0,\ncurl.200,,,\ntcp4 unrelated,\(unrelated),0,"
+        }
+        var detector = AgentActivity()
+        let now = Date()
+        XCTAssertFalse(detector.observe(processes: processes, assertions: "", network: sample(agent: 100, unrelated: 100), now: now))
+        XCTAssertFalse(detector.observe(processes: processes, assertions: "", network: sample(agent: 100, unrelated: 60_000), now: now.addingTimeInterval(5)))
+        XCTAssertTrue(detector.observe(processes: processes, assertions: "", network: sample(agent: 60_000, unrelated: 60_000), now: now.addingTimeInterval(10)))
+    }
     func testMetadataFailureRollsBackAndRetainsExactSecurityClassifications() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

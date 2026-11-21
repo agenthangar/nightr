@@ -22,6 +22,14 @@ public struct AgentActivity {
             return (pid, parent, String(pieces[2]))
         }
     }
+    static func networkSampleArguments(processes: String) -> [String]? {
+        let agents = Self.processes(processes).filter { Self.isAgent($0.command) }
+        guard !agents.isEmpty else { return nil }
+        // nettop rejects more than 20 PID filters. With more agents, take one
+        // sample and let observe filter the rows by the same agent PIDs.
+        let filters = agents.count <= 20 ? agents.flatMap { ["-p", String($0.pid)] } : []
+        return ["-x", "-n", "-s", "1", "-L", "1"] + filters + ["-J", "bytes_in,bytes_out"]
+    }
     public mutating func observe(processes: String, assertions: String, network: String, now: Date) -> Bool {
         let rows = Self.processes(processes)
         let agents = Set(rows.filter { Self.isAgent($0.command) }.map(\.pid))
