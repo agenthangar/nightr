@@ -27,7 +27,7 @@ public actor ControllerService {
         self.platform = platform; self.settingsStore = settingsStore; self.runtimeDirectory = runtimeDirectory
         engine = MonitorEngine(settings: try settingsStore.load())
     }
-    public func start() async throws {
+    public func start(afterDesktopInstall: Bool = false) async throws {
         guard !running else { return }
         ownership = try RuntimeOwnership(directory: runtimeDirectory)
         do {
@@ -44,7 +44,7 @@ public actor ControllerService {
                 guard let self else { return ControllerResponse(error: "controller stopping") }
                 return await self.request(request)
             }
-            await send(.bootstrap(wasUnclean: wasUnclean))
+            await send(.bootstrap(wasUnclean: wasUnclean, afterDesktopInstall: afterDesktopInstall))
             timer = Task { [weak self] in
                 while !Task.isCancelled {
                     do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }

@@ -14,6 +14,12 @@ Xcode, developer tools, separately installed Python or source build is needed.
 The DMG also contains an app copy for inspection; dragging that copy does not
 complete the required root-owned package installation.
 
+When you open the package in the macOS Installer app, Nightr attempts to open
+its menu bar item in your current login session after the signed payload is
+verified and the installation guard releases its locks. It restores saved
+protection intent and respects the usual safety checks. If the menu bar item
+does not appear, open Nightr from Applications.
+
 Homebrew distribution uses a tap cask with the `pkg "Nightr.pkg"` artifact.
 After the stable signed release and matching cask are published, add the tap
 and then install the cask:

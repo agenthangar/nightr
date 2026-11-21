@@ -48,7 +48,8 @@ public struct ControllerState: Codable, Equatable, Sendable {
     public init() {}
 }
 public enum MonitorEvent: Sendable {
-    case bootstrap(wasUnclean: Bool), lifecycleStarted, lifecycleStopped, start, stop, tick(MachineSample), sample(MachineSample), sleep, normalWake, maintenanceWake, pathChanged
+    case bootstrap(wasUnclean: Bool, afterDesktopInstall: Bool = false)
+    case lifecycleStarted, lifecycleStopped, start, stop, tick(MachineSample), sample(MachineSample), sleep, normalWake, maintenanceWake, pathChanged
     case internetResult(UUID, Bool), hotspotResult(UUID, JoinResult)
     case retryNow, tryAgain, skipFallback, settings(Settings), login, crashed, ownershipLost
 }
@@ -83,11 +84,11 @@ public struct MonitorEngine: Sendable {
         switch event {
         case .lifecycleStarted: state.uncleanShutdown = true
         case .lifecycleStopped: state.uncleanShutdown = false; return [.persist]
-        case .bootstrap(let wasUnclean):
+        case .bootstrap(let wasUnclean, let afterDesktopInstall):
             state.uncleanShutdown = true
             state.crashRestarts = wasUnclean ? min(3, state.crashRestarts) + 1 : 0
             if state.desiredEnabled {
-                if !settings.launchAtLogin { state.pause = .loginOptOut }
+                if !settings.launchAtLogin && !afterDesktopInstall { state.pause = .loginOptOut }
                 else if state.crashRestarts > 3 { state.pause = .crashLimit }
                 else if !hardPause && !asleep { refreshSamples(now: now); state.lastInternetVerified = false; state.internet = .unknown }
             }

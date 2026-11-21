@@ -55,6 +55,15 @@ final class GUIRoutingTests: XCTestCase {
             XCTAssertFalse(settings.exitsAfterConnectingToExistingOwner)
         }
     }
+    func testDesktopInstallLaunchUsesVisibleControllerOnly() {
+        let desktop = GUILaunchConfiguration(arguments: ["--after-install"])
+        XCTAssertEqual(desktop.startup, .controller)
+        XCTAssertFalse(desktop.headless)
+        XCTAssertTrue(desktop.afterDesktopInstall)
+        for arguments in [[], ["--controller-only", "--after-install"], ["--settings-only", "--after-install"]] {
+            XCTAssertFalse(GUILaunchConfiguration(arguments: arguments).afterDesktopInstall)
+        }
+    }
     func testObservedProtectionStatesHaveDistinctTextAndGlyphs() {
         var labels: Set<String> = [], symbols: Set<String> = []
         for (enabled, holding, internet, pause): (Bool, Bool, InternetState, PauseReason?) in [

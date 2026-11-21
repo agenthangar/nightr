@@ -202,7 +202,11 @@ def main():
         else:
             image = stage / "image"; image.mkdir()
             shutil.copytree(app, image / "Nightr.app", symlinks=True); shutil.copy2(package, image / "Nightr.pkg")
-            (image / "Install Nightr.txt").write_text("Open Nightr.pkg to install the signed app and command. Then open Nightr and choose Set up to explicitly authorize its power helper. Protection starts only when you enable it.\n")
+            (image / "Install Nightr.txt").write_text(
+                "Open Nightr.pkg to install the signed app and command. macOS Installer opens Nightr in your menu bar. "
+                "If it does not appear, open Nightr from Applications. Choose Set up to authorize the power helper. "
+                "On a first install, protection starts only when you enable it.\n"
+            )
             run("/usr/bin/hdiutil", "create", "-volname", "Nightr", "-srcfolder", image, "-format", "UDZO", "-ov", dmg)
             sign(dmg, settings["NIGHTR_APPLICATION_IDENTITY"])
             checkpoint.retain("dmg", dmg)
