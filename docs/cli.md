@@ -183,12 +183,12 @@ compatibility control; the app preserves imported custom policies.
 
 ## Protection and recovery
 
-While the lid is open, failed automatic conditions do not release the hold.
-With the lid closed, each selected condition retains its grace period; activity
-needs initial samples before an idle decision. Failed conditions receive the
-configured extra retries with a doubling delay capped at five minutes. Internet
-recovery refreshes activity sampling and grace. Display and locking choices
-remain separate from the decision to allow sleep.
+In the native app and CLI, automatic protection allows sleep once the selected
+conditions fail for their grace periods and the configured retries run out.
+This applies with the lid open or closed. Activity needs initial samples before
+an idle decision. Each retry doubles the delay, up to five minutes. Internet
+recovery refreshes activity sampling and grace. Lid-close settings control the
+display and lock.
 
 Automatic internet verification and saved-hotspot joins run only when automatic
 monitoring and its internet condition are enabled. Forever, require-none and

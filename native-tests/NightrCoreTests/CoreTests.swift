@@ -152,6 +152,46 @@ final class CoreTests: XCTestCase {
         _ = engine.handle(.tick(MachineSample(lidClosed: true)), now: now.addingTimeInterval(241))
         XCTAssertEqual(engine.state.pause, .inactivity); XCTAssertFalse(engine.holding)
     }
+    func testAutomaticHoldReleasesAfterBothChecksFailWithEitherLidPosition() {
+        var settings = Settings(); settings.requirement = .count(1)
+        for lidClosed in [false, true] {
+            let idle = MachineSample(lidClosed: lidClosed)
+            var engine = MonitorEngine(settings: settings, sample: MachineSample(agentActive: true, lidClosed: lidClosed))
+            _ = engine.handle(.start, now: now)
+            _ = engine.handle(.internetResult(engine.verificationToken!, true), now: now)
+            _ = engine.handle(.tick(idle), now: now.addingTimeInterval(30))
+            _ = engine.handle(.internetResult(engine.verificationToken!, false), now: now.addingTimeInterval(31))
+            _ = engine.handle(.tick(idle), now: now.addingTimeInterval(930))
+            XCTAssertTrue(engine.holding)
+            _ = engine.handle(.tick(idle), now: now.addingTimeInterval(960))
+            XCTAssertEqual(engine.state.nextConditionRetryAt, now.addingTimeInterval(990))
+            _ = engine.handle(.tick(idle), now: now.addingTimeInterval(990))
+            _ = engine.handle(.tick(idle), now: now.addingTimeInterval(1050))
+            XCTAssertTrue(engine.holding)
+            let effects = engine.handle(.tick(idle), now: now.addingTimeInterval(1170))
+            XCTAssertTrue(effects.contains(.releaseHold))
+            XCTAssertFalse(engine.holding)
+            XCTAssertTrue(engine.state.desiredEnabled)
+            XCTAssertEqual(engine.state.pause, .connectivity)
+            XCTAssertTrue(engine.verificationEligible)
+        }
+    }
+    func testOpeningLidDuringRetriesDoesNotExtendTheHold() {
+        var settings = Settings(); settings.internet = false; settings.grace = 0; settings.retries = 1
+        let closed = MachineSample(lidClosed: true)
+        var engine = MonitorEngine(settings: settings, sample: closed)
+        _ = engine.handle(.start, now: now)
+        _ = engine.handle(.tick(closed), now: now.addingTimeInterval(30))
+        let retryDeadline = now.addingTimeInterval(60)
+        XCTAssertEqual(engine.state.nextConditionRetryAt, retryDeadline)
+        _ = engine.handle(.tick(MachineSample()), now: now.addingTimeInterval(31))
+        XCTAssertEqual(engine.state.nextConditionRetryAt, retryDeadline)
+        XCTAssertTrue(engine.holding)
+        let effects = engine.handle(.tick(MachineSample()), now: retryDeadline)
+        XCTAssertTrue(effects.contains(.releaseHold))
+        XCTAssertFalse(engine.holding)
+        XCTAssertEqual(engine.state.pause, .inactivity)
+    }
     func testDisabledNetworkPoliciesNeverProbeJoinOrSpendOnExplicitRetry() {
         var base = Settings(); base.hotspot = true; base.hotspotSSID = "phone"; base.hotspotAfter = 0
         var policies: [Settings] = []
