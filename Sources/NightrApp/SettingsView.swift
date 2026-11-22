@@ -68,6 +68,7 @@ struct SettingsView: View {
         .background(Color.nightrSurface)
         .ignoresSafeArea(.container, edges: .top)
         .foregroundStyle(Color.nightrInk)
+        .toggleStyle(.checkbox)
         .tint(.nightrAmber)
         .environmentObject(numbers)
         .onAppear(perform: load)
@@ -101,22 +102,13 @@ struct SettingsView: View {
             HStack {
                 Text("Desktop notification prompt")
                 Spacer()
-                Button {
-                    if notificationStatus == .notDetermined {
-                        Task {
-                            do { try await DesktopSetup.notifications() } catch { self.error = error.localizedDescription }
-                            await refreshNotifications()
-                        }
-                    } else {
-                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
-                    }
-                } label: {
-                    let enabled = notificationStatus == .authorized || notificationStatus == .provisional
-                    Image(systemName: enabled ? "checkmark.square.fill" : "square")
-                        .font(.system(size: 16)).foregroundStyle(enabled ? Color.nightrAmber : Color.nightrMuted)
-                        .accessibilityLabel("Desktop notification prompt")
-                        .accessibilityValue(notificationStatus == nil ? "Checking" : (enabled ? "Allowed" : "Off"))
-                }.buttonStyle(.plain).disabled(notificationStatus == nil)
+                Toggle("Desktop notification prompt", isOn: Binding(
+                    get: { notificationsAllowed },
+                    set: { _ in manageNotifications() }
+                ))
+                .labelsHidden()
+                .disabled(notificationStatus == nil)
+                .accessibilityValue(notificationStatus == nil ? "Checking" : (notificationsAllowed ? "Allowed" : "Off"))
                 .help(notificationStatus == .notDetermined ? "Allow hotspot notifications" : "Manage notifications in System Settings")
             }.frame(minHeight: 35)
             Divider()
@@ -125,6 +117,22 @@ struct SettingsView: View {
                 .fixedSize(horizontal: false, vertical: true).padding(.top, 14)
         }.task(id: activeState) { await refreshNotifications() }
     }
+    private var notificationsAllowed: Bool {
+        notificationStatus == .authorized || notificationStatus == .provisional
+    }
+
+    private func manageNotifications() {
+        guard let notificationStatus else { return }
+        if notificationStatus == .notDetermined {
+            Task {
+                do { try await DesktopSetup.notifications() } catch { self.error = error.localizedDescription }
+                await refreshNotifications()
+            }
+        } else {
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
+        }
+    }
+
     private func refreshNotifications() async {
         guard store != nil else { return }
         let settings = await UNUserNotificationCenter.current().notificationSettings()

@@ -168,6 +168,7 @@ import NightrController
         precondition(window.title == title.stringValue && window.titleVisibility == .hidden)
         precondition(window.frame.size == NSSize(width: 600, height: 590), "Settings window size drifted from the approved preview")
         guard section == .general else { return }
+        try checkGeneralCheckboxes(capture, width: frameView.bounds.width)
         // Read the rendered pane so unexpected SwiftUI-only rows are covered as well.
         let request = VNRecognizeTextRequest()
         request.recognitionLanguages = ["en-US"]
@@ -178,6 +179,36 @@ import NightrController
         }
         for extra in ["power helper", "set up nightr"] where labels.contains(extra) {
             throw RenderError.generalControl(extra)
+        }
+    }
+
+    /// Compare the trailing 32 × 24 pt of both General rows in the full-window
+    /// capture. The fixture has both boxes on. Include the bezel, tick and the
+    /// surrounding surface so a change in alignment is visible too.
+    private static func checkGeneralCheckboxes(_ capture: URL, width: CGFloat) throws {
+        guard let bitmap = NSBitmapImageRep(data: try Data(contentsOf: capture)) else { throw RenderError.bitmap }
+        let scale = CGFloat(bitmap.pixelsWide) / width
+        func pixels(_ points: CGFloat) -> Int { Int((points * scale).rounded()) }
+        let trailingEdge = width - SettingsLayout.contentInset
+        let columns = pixels(trailingEdge - 32)..<pixels(trailingEdge)
+        let rows = pixels(202)..<pixels(226)
+        var ink = 0
+        var different = 0
+        func distance(_ a: NSColor, _ b: NSColor) -> CGFloat {
+            max(abs(a.redComponent - b.redComponent), abs(a.greenComponent - b.greenComponent),
+                abs(a.blueComponent - b.blueComponent))
+        }
+        for y in rows {
+            guard let background = bitmap.colorAt(x: columns.lowerBound, y: y) else { throw RenderError.bitmap }
+            for x in columns {
+                guard let login = bitmap.colorAt(x: x, y: y),
+                      let notifications = bitmap.colorAt(x: x, y: y + pixels(36)) else { throw RenderError.bitmap }
+                if distance(login, background) > 0.04 { ink += 1 }
+                if distance(login, notifications) > 0.04 { different += 1 }
+            }
+        }
+        guard ink > pixels(8) * pixels(8), different <= max(1, ink / 50) else {
+            throw RenderError.generalControl("General checkboxes differ in appearance or alignment")
         }
     }
 

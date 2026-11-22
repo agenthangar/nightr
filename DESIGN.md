@@ -31,6 +31,11 @@ window follows the selected light/dark appearance; its native palette must not
 be overridden by default dark component variables. Standard and disabled buttons
 need explicit light-appearance fills, borders and readable text as well.
 
+Use the native checkbox style for binary Settings controls across all tabs.
+The login and notification rows share the same trailing alignment, size, tint,
+and checkmark. The notification checkbox reflects the permission reported by
+macOS. Activating it requests permission or opens notification settings.
+
 The visual reference is [Rectangle Settings](https://rectangleapp.com/assets/images/shortcutScreenshot.jpg).
 Borrow its native density and organization, not its product controls.
 
