@@ -1,28 +1,58 @@
 #if os(macOS) && DEBUG
 import AppKit
 import SwiftUI
+import Vision
 import NightrCore
 import NightrController
 
 /// Internal debug-only offscreen artifact path. Runs before AppModel exists;
-/// uses synthetic observations and never creates windows or system services.
+/// captures synthetic content in an offscreen Settings window without starting system services.
 @MainActor enum NativePresentationRenderer {
     static func run(output: URL) throws {
         _ = NSApplication.shared
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         try checkArtwork()
         checkMenuSizing()
-        var draft = NightrCore.Settings(); draft.hotspot = true; draft.hotspotSSID = "Sample iPhone · exact long SSID"; draft.every = 900
+        var draft = NightrCore.Settings()
+        draft.hotspot = true
+        draft.hotspotSSID = "Sample iPhone"
+        draft.displayOn = true
+        draft.lock = false
+        draft.batteryProtection = true
         for dark in [false, true] {
             let scheme: ColorScheme = dark ? .dark : .light
             let suffix = dark ? "dark" : "light"
             for section in NightrSettingsSection.allCases {
-                try render(SettingsView(section: .constant(section), status: sample("On"), initialDraft: draft).environment(\.colorScheme, scheme),
-                    size: NSSize(width: 600, height: 540), dark: dark, to: output.appendingPathComponent("settings-\(section.rawValue.lowercased())-\(suffix).png"))
+                let view = SettingsView(section: .constant(section), status: sample("On"), initialDraft: draft, notificationStatus: .authorized)
+                    .environment(\.colorScheme, scheme)
+                let window = makeSettingsWindow(hosting: view)
+                window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                defer { window.close() }
+                window.displayIfNeeded()
+                guard let frameView = window.contentView?.superview else { throw RenderError.bitmap }
+                precondition(frameView.bounds.size == window.frame.size)
+                let file = output.appendingPathComponent("settings-\(section.rawValue.lowercased())-\(suffix).png")
+                try capture(frameView, to: file)
+                try checkSettingsWindow(window, frameView: frameView, section: section, capture: file)
+                if section != .general, let scroll = descendants(frameView).compactMap({ $0 as? NSScrollView }).first,
+                   let document = scroll.documentView {
+                    let bottom = document.isFlipped ? document.bounds.maxY - scroll.contentView.bounds.height : document.bounds.minY
+                    scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, bottom)))
+                    scroll.reflectScrolledClipView(scroll.contentView)
+                    try capture(frameView, to: output.appendingPathComponent("settings-\(section.rawValue.lowercased())-bottom-\(suffix).png"))
+                }
+                try checkToolbarKeyboard(frameView)
             }
-            for label in ["Off", "On", "Paused", "Recovering", "Error"] {
-                try render(NightrPopover(status: sample(label), error: label == "Error" ? "Sample setup requires authorization. Open setup to continue." : nil).environment(\.colorScheme, scheme),
-                    size: nil, dark: dark, to: output.appendingPathComponent("popover-\(label.lowercased())-\(suffix).png"))
+            let fixtures: [(String, ControllerStatus?, DesktopServiceStatus?)] = [
+                ("Off", sample("Off"), .enabled), ("On", sample("On"), .enabled),
+                ("Paused", sample("Paused"), .enabled), ("Recovering", sample("Recovering"), .enabled),
+                ("Error", sample("Error"), .notRegistered), ("Checking", nil, nil),
+                ("Approval", sample("Error"), .requiresApproval)
+            ]
+            for (label, status, helper) in fixtures {
+                let view = NightrPopover(status: status, error: nil, helperStatus: helper)
+                    .environment(\.colorScheme, scheme)
+                try render(view, size: nil, dark: dark, to: output.appendingPathComponent("popover-\(label.lowercased())-\(suffix).png"))
             }
         }
         // Run the deterministic routing/state contracts even on Command Line
@@ -42,7 +72,7 @@ import NightrController
         precondition(labels.count == 5 && symbols.count == 5)
         try checkRegistration()
         try checkSettingsReceipt(in: output)
-        print("Rendered 18 actual native view fixtures; artwork, popover sizing, launch/state and synthetic-registration contracts passed.")
+        print("Rendered full Settings windows and synthetic popover states; artwork, popover sizing, launch/state and synthetic-registration contracts passed.")
     }
     private static func checkMenuSizing() {
         let fixture = MenuFixture(status: sample("On"))
@@ -65,7 +95,7 @@ import NightrController
     }
     private struct MenuFixtureHost: View {
         @ObservedObject var fixture: MenuFixture
-        var body: some View { NightrPopover(status: fixture.status, error: nil) }
+        var body: some View { NightrPopover(status: fixture.status, error: nil, helperStatus: .enabled) }
     }
     private static func checkSettingsReceipt(in output: URL) throws {
         let directory = output.appendingPathComponent("save-contract")
@@ -113,6 +143,10 @@ import NightrController
         let host = NSHostingView(rootView: view)
         host.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         host.frame.size = size ?? host.fittingSize
+        try capture(host, to: url)
+    }
+
+    private static func capture(_ host: NSView, to url: URL) throws {
         host.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         host.layoutSubtreeIfNeeded()
@@ -120,10 +154,33 @@ import NightrController
         host.cacheDisplay(in: host.bounds, to: rep)
         guard let png = rep.representation(using: .png, properties: [:]) else { throw RenderError.bitmap }
         try png.write(to: url)
-        if url.lastPathComponent.hasPrefix("settings-") { try checkToolbarKeyboard(host) }
     }
+    private static func descendants(_ view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants($0) }
+    }
+
+    private static func checkSettingsWindow(_ window: NSWindow, frameView: NSView, section: NightrSettingsSection, capture: URL) throws {
+        let fields = descendants(frameView).compactMap { $0 as? NSTextField }
+        guard let title = fields.first(where: { $0.accessibilityIdentifier() == "settings-window-title" }) else { throw RenderError.missingTitle }
+        let titleFrame = frameView.convert(title.bounds, from: title)
+        precondition(abs(titleFrame.midX - frameView.bounds.midX) <= 1 && title.alignment == .center)
+        precondition(window.title == title.stringValue && window.titleVisibility == .hidden)
+        precondition(window.frame.size == NSSize(width: 600, height: 590), "Settings window size drifted from the approved preview")
+        guard section == .general else { return }
+        // Read the rendered pane so unexpected SwiftUI-only rows are covered as well.
+        let request = VNRecognizeTextRequest()
+        request.recognitionLanguages = ["en-US"]
+        try VNImageRequestHandler(url: capture).perform([request])
+        let labels = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ").lowercased()
+        for expected in ["launch app at login", "desktop notification prompt"] where !labels.contains(expected) {
+            throw RenderError.generalControl(expected)
+        }
+        for extra in ["power helper", "set up nightr"] where labels.contains(extra) {
+            throw RenderError.generalControl(extra)
+        }
+    }
+
     private static func checkToolbarKeyboard(_ host: NSView) throws {
-        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
         let labels = NightrSettingsSection.allCases.map(\.rawValue)
         let buttons = descendants(host).compactMap { $0 as? NSButton }.filter { labels.contains($0.title) }.sorted { $0.tag < $1.tag }
         precondition(buttons.count == 4)
@@ -159,13 +216,13 @@ import NightrController
         }
         let now = Date()
         let activity = ActivityObservation(cpuPercent: 38, gpuPercent: 67, runtimes: [
-            .init(runtime: .ollama, version: "Sample", observedAt: now, models: [.init(id: "sample-coder", residency: .loaded, activity: .generating, contextTokens: 32768, memoryBytes: 9_600_000_000, startedAt: now.addingTimeInterval(-42), inferenceExpiresAt: now.addingTimeInterval(15))]),
-            .init(runtime: .lmStudio, version: "Sample", observedAt: now, models: [.init(id: "sample-reasoner", residency: .loaded, activity: .idle)]),
+            .init(runtime: .ollama, version: "Sample", observedAt: now, models: [.init(id: "qwen2.5-coder:14b", residency: .loaded, activity: .generating, contextTokens: 32768, memoryBytes: 9_600_000_000, startedAt: now.addingTimeInterval(-42), inferenceExpiresAt: now.addingTimeInterval(15))]),
+            .init(runtime: .lmStudio, version: "Sample", observedAt: now, models: [.init(id: "deepseek-r1-distill-7b", residency: .loaded, activity: .idle)]),
             .init(runtime: .llamaCPP, observedAt: now, models: [.init(id: "sample-server", residency: .loaded)]),
             .init(runtime: .mlx, observedAt: now, models: [.init(id: "sample-inventory", residency: .available)])
         ])
-        return ControllerStatus(engine: MonitorEngine(state: state, sample: MachineSample(batteryPercent: 84, agentActive: true, setupReady: label != "Error", agentObservation: .active, activity: activity)), holding: label == "On")
+        return ControllerStatus(engine: MonitorEngine(state: state, sample: MachineSample(batteryPercent: 100, agentActive: true, setupReady: label != "Error", agentObservation: .active, activity: activity)), holding: label == "On")
     }
-    private enum RenderError: Error { case bitmap }
+    private enum RenderError: Error { case bitmap, missingTitle, generalControl(String) }
 }
 #endif

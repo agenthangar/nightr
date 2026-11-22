@@ -79,10 +79,7 @@ import NightrCore
             return
         }
         let view = SettingsHost(model: model) { [weak self] in self?.settingsWindow?.close() }
-        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-        window.title = "Nightr Settings"
-        window.styleMask = [.titled, .closable]
-        window.isReleasedWhenClosed = false
+        let window = makeSettingsWindow(hosting: view)
         window.delegate = self
         settingsWindow = window
         window.center()
@@ -122,6 +119,27 @@ import NightrCore
     }
 }
 
+/// Shared by production presentation and full-window visual fixtures. Creating
+/// this window does not activate the application or perform any system setup.
+@MainActor func makeSettingsWindow<Content: View>(hosting content: Content) -> NSWindow {
+    let host = NSHostingController(rootView: content)
+    host.sizingOptions = []
+    if #available(macOS 14.0, *) { host.safeAreaRegions = [] }
+    let window = NSWindow(contentViewController: host)
+    window.title = "Nightr Settings"
+    window.styleMask = [.titled, .closable, .fullSizeContentView]
+    window.titleVisibility = .hidden
+    window.titlebarAppearsTransparent = true
+    window.titlebarSeparatorStyle = .none
+    window.backgroundColor = .nightrSurface
+    host.view.layoutSubtreeIfNeeded()
+    window.contentMinSize = .zero
+    window.setFrame(NSRect(x: window.frame.minX, y: window.frame.minY,
+                           width: SettingsLayout.width, height: SettingsLayout.bodyHeight), display: false)
+    window.isReleasedWhenClosed = false
+    return window
+}
+
 @MainActor func makeMenuPopover<Content: View>(hosting content: Content) -> NSPopover {
     let popover = NSPopover()
     popover.behavior = .transient
@@ -147,9 +165,9 @@ private struct PopoverHost: View {
     let settings: () -> Void
 
     var body: some View {
-        NightrPopover(status: model.status, error: model.error, command: { model.command($0) },
+        NightrPopover(status: model.status, error: model.error, helperStatus: model.helperStatus, setupError: model.setupError, command: { model.command($0) },
                       settings: settings, setup: {
-                          do { try DesktopSetup.complete() } catch { model.error = error.localizedDescription }
+                          model.setupHelper()
                       }, quit: { model.quit() }, wifiSettings: { DesktopSetup.systemWiFi() })
     }
 }

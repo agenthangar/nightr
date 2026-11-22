@@ -19,11 +19,24 @@ public enum GUISettingsRoute: String, CaseIterable, Equatable, Sendable {
     public var section: NightrSettingsSection { self == .general ? .general : .connectivity }
 }
 
+/// Setup is an explicit process invocation, never a distributed Settings route.
+/// The app handles this mode before constructing any controller or app model.
+public enum DesktopSetupInvocation: Equatable, Sendable {
+    case desktop, helperOnly
+    public static let desktopArguments = ["--setup-desktop"]
+    public static let helperOnlyArguments = ["--setup-helper-only"]
+    public init?(arguments: [String]) {
+        if arguments.contains(Self.desktopArguments[0]) || arguments.contains("--setup") { self = .desktop }
+        else if arguments.contains(Self.helperOnlyArguments[0]) { self = .helperOnly }
+        else { return nil }
+    }
+}
+
 public enum GUIStartupMode: Equatable, Sendable {
     case presentation, controller
     public static let settingsArguments = ["--settings-only"]
     public init(arguments: [String]) {
-        self = arguments.contains(where: { ["--settings-only", "--setup", "--hotspot-setup", "--enable-discovery"].contains($0) }) ? .presentation : .controller
+        self = DesktopSetupInvocation(arguments: arguments) != nil || arguments.contains(where: { ["--settings-only", "--hotspot-setup", "--enable-discovery"].contains($0) }) ? .presentation : .controller
     }
 }
 

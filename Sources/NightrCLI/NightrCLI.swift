@@ -121,8 +121,8 @@ import Glibc
                 print(sample.setupReady ? "Nightr setup is ready." : "Nightr setup needs attention. Run `nightr setup` to authorize the power helper.")
                 if !sample.setupReady { exit(1) }
             } else if args == ["--direct-updates"] { try bundledPython(script: "nightr_install.py", args: ["adopt-direct"]) }
-            else if args == ["--cli-only"] { try launchApp(arguments: ["--setup-helper-only"], wait: true) }
-            else { try await openSettings(.general) }
+            else if args == ["--cli-only"] { try launchApp(arguments: DesktopSetupInvocation.helperOnlyArguments, wait: true) }
+            else { try launchApp(arguments: DesktopSetupInvocation.desktopArguments, wait: true) }
 #else
             throw IPCError.invalid("setup is available on macOS 13 or later")
 #endif
@@ -246,11 +246,17 @@ import Glibc
         let app = executable.deletingLastPathComponent().appendingPathComponent("NightrApp")
         guard FileManager.default.isExecutableFile(atPath: app.path) else { throw IPCError.invalid("Nightr app is missing; repair the installation") }
         let process = Process(); process.executableURL = app; process.arguments = arguments
-        process.standardInput = FileHandle.nullDevice; process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+        let errors = wait ? Pipe() : nil
+        process.standardInput = FileHandle.nullDevice; process.standardOutput = FileHandle.nullDevice
+        process.standardError = errors.map { $0 as Any } ?? FileHandle.nullDevice
         try process.run()
         if wait {
+            // Drain while the child runs, so a failure cannot fill its stderr pipe.
+            let detail = errors.map { String(decoding: $0.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
             process.waitUntilExit()
-            guard process.terminationStatus == 0 else { throw IPCError.invalid("helper setup needs authorization in System Settings; reopen Nightr setup") }
+            guard process.terminationStatus == 0 else {
+                throw IPCError.invalid(detail.isEmpty ? "Nightr setup did not complete. Run nightr setup to retry." : detail)
+            }
         }
     }
     static func ensureController() async throws {

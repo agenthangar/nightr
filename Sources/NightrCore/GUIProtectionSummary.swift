@@ -15,8 +15,16 @@ public struct GUIProtectionSummary {
         case .unknown, nil: internet = "Not checked"
         }
         guard let status else {
-            label = "Error"; symbol = "exclamationmark.triangle"
-            detail = "Controller status is unavailable."; return
+            if error == nil {
+                label = "Checking…"
+                symbol = "clock"
+                detail = "Checking protection status."
+            } else {
+                label = "Error"
+                symbol = "exclamationmark.triangle"
+                detail = "Controller status is unavailable."
+            }
+            return
         }
         if error != nil || status.state.pause.map({ [PauseReason.setup, .ownership, .crashLimit].contains($0) }) == true {
             label = "Error"; symbol = "exclamationmark.triangle"; detail = "Protection needs attention. Review the details below."

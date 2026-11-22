@@ -7,6 +7,8 @@ import NightrCore
 struct NightrPopover: View {
     let status: ControllerStatus?
     let error: String?
+    var helperStatus: DesktopServiceStatus? = nil
+    var setupError: String? = nil
     var command: (ControllerCommand) -> Void = { _ in }
     var settings: () -> Void = {}
     var setup: () -> Void = {}
@@ -26,15 +28,16 @@ struct NightrPopover: View {
                 Image(systemName: state.symbol).font(.system(size: 21))
                 Text(state.label).font(.system(size: 31, weight: .medium))
             }.padding(.top, 20)
-            Text(state.detail).font(.system(size: 12)).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true).padding(.top, 5).padding(.bottom, 16)
+            Text(state.detail).font(.system(size: 12)).foregroundStyle(Color.nightrMuted)
+                .fixedSize(horizontal: false, vertical: true).frame(minHeight: 34, alignment: .topLeading).padding(.top, 5).padding(.bottom, 16)
             Button { command(enabled ? .stop : .start) } label: {
                 Text(enabled ? "Stop protection" : "Start protection").fontWeight(.semibold)
                     .frame(maxWidth: .infinity).padding(.vertical, 9)
-                    .background(enabled ? Color.primary.opacity(0.08) : Color.nightrButtonAmber, in: RoundedRectangle(cornerRadius: 7))
+                    .background(enabled ? Color(red: 233/255, green: 233/255, blue: 235/255) : Color.nightrButtonAmber, in: RoundedRectangle(cornerRadius: 7))
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.08)))
             }.buttonStyle(.plain)
-                .foregroundColor(enabled ? .primary : Color(red: 0.15, green: 0.11, blue: 0.04))
+                .foregroundColor(enabled ? Color(red: 32/255, green: 33/255, blue: 39/255) : Color(red: 0.15, green: 0.11, blue: 0.04))
+                .disabled(status == nil && error == nil)
             LocalModelsView(observation: status?.sample.activity)
             Divider().padding(.top, 11)
             VStack(spacing: 11) {
@@ -64,8 +67,21 @@ struct NightrPopover: View {
                 Text(message).font(.system(size: 12)).foregroundStyle(.red).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 12)
             }
-            if status?.sample.setupReady != true {
-                Button("Set up Nightr…", action: setup).controlSize(.small).padding(.top, 12)
+            if let setupError {
+                Text("Power helper setup: " + setupError).font(.system(size: 12)).foregroundStyle(.red).textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true).padding(.top, 12)
+            }
+            if helperStatus == nil {
+                Text("Checking setup…").font(.system(size: 12)).foregroundStyle(.secondary).padding(.top, 12)
+            } else if helperStatus == .notRegistered || helperStatus == .requiresApproval {
+                Button(helperStatus == .requiresApproval ? "Review helper approval…" : "Set up Nightr…", action: setup)
+                    .controlSize(.small).padding(.top, 12)
+            } else if helperStatus == .missingBundleFiles {
+                Text("Required helper files are missing. Reinstall Nightr using your installation manager.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.top, 12)
+            } else if helperStatus == .unavailable || (helperStatus == .notFound && status?.sample.setupReady != true) {
+                Text("Helper registration could not be checked. For explicit setup, run nightr setup.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.top, 12)
             }
             Divider().padding(.vertical, 14)
             HStack {
@@ -73,7 +89,7 @@ struct NightrPopover: View {
                 Spacer()
                 Button("Stop and Quit", action: quit).keyboardShortcut("q")
             }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
-        }.padding(18).frame(width: 318).background(Color(nsColor: .windowBackgroundColor))
+        }.padding(18).frame(width: 318).background(Color.nightrSurface)
     }
     private var agentLabel: String {
         switch status?.sample.agentObservation {

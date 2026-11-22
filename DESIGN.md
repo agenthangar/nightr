@@ -293,6 +293,22 @@ Protection section headings share one 15px semibold foreground style and spacing
 Lid settings use a compact label/control grid so the display selector and lock
 checkbox align without stretching across the window.
 
+### Checking the macOS implementation against the preview
+
+Use the Settings opened from the activity popover as the reference. The approved
+revision is [88b93ca](https://github.com/agenthangar/nightr/blob/88b93cabf1f2be3e311a6bc4ab4f75aa796e1713/design-preview/activity.html).
+Compare every Settings tab and the populated popover in both Light and Dark at
+the same logical size. Use the same synthetic model and preference values.
+
+The debug app’s `--render-presentations OUTPUT_DIRECTORY` command renders the
+production Settings window offscreen, including its title bar, and checks the
+title position, window dimensions, General controls and keyboard navigation.
+Inspect these captures beside the browser reference before merging presentation
+changes. During signed installation acceptance, open Settings from the menu bar
+and check window controls and focus. General contains login and notification
+controls. A confirmed helper authorization request belongs in the popover or
+explicit setup flow.
+
 ## Native connectivity references
 
 - [Apple Instant Hotspot and Auto-Join](https://support.apple.com/en-us/109321):

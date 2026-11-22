@@ -11,6 +11,8 @@ import NightrPlatform
 @MainActor final class AppModel: NSObject, ObservableObject {
     @Published var status: ControllerStatus?
     @Published var error: String?
+    @Published var helperStatus: DesktopServiceStatus?
+    @Published var setupError: String?
     @Published var presentation = GUIPresentationState(headless: GUILaunchConfiguration(arguments: CommandLine.arguments).headless)
     private var settingsRequests: GUISettingsNotificationReceiver?
     private var service: ControllerService?
@@ -28,7 +30,6 @@ import NightrPlatform
                 await refresh()
                 beginPolling()
             } else { _ = await boot(initialLaunch: true) }
-            if CommandLine.arguments.contains("--setup") { GUIEventInbox.receive(.general) }
             if CommandLine.arguments.contains("--hotspot-setup") || CommandLine.arguments.contains("--enable-discovery") { GUIEventInbox.receive(.connectivity) }
         }
     }
@@ -86,6 +87,11 @@ import NightrPlatform
         }
     }
     func refresh() async {
+        if presentation.menuVisible {
+            let observedHelper = DesktopSetup.helperStatus
+            if helperStatus != .enabled && observedHelper == .enabled { setupError = nil }
+            helperStatus = observedHelper
+        }
         if let service {
             let observed = await service.status()
             guard !Task.isCancelled else { return }
@@ -140,6 +146,16 @@ import NightrPlatform
             // Durable settings are sufficient when no owner exists.
         }
     }
+    func setupHelper() {
+        if DesktopSetup.helperStatus == .requiresApproval {
+            SMAppService.openSystemSettingsLoginItems()
+            return
+        }
+        do { try DesktopSetup.helper(); setupError = nil }
+        catch { setupError = error.localizedDescription }
+        helperStatus = DesktopSetup.helperStatus
+        Task { await refresh() }
+    }
     func quit() {
         startIntent.cancel()
         Task {
@@ -158,15 +174,39 @@ import NightrPlatform
 
 
 @MainActor enum DesktopSetup {
+    /// Only the explicit CLI desktop-setup process presents this confirmation.
+    /// It exits before AppModel exists, so setup cannot create a controller.
+    static func runDesktopCommand() -> Never {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        app.activate(ignoringOtherApps: true)
+        let confirmation = NSAlert()
+        confirmation.messageText = "Set up Nightr?"
+        confirmation.informativeText = "Authorize the power helper and apply your saved “Launch Nightr at login” preference. Previously enabled protection may resume at login. Your saved preferences are preserved."
+        confirmation.addButton(withTitle: "Set Up Nightr")
+        confirmation.addButton(withTitle: "Cancel")
+        guard confirmation.runModal() == .alertFirstButtonReturn else {
+            report("Nightr setup cancelled. No setup changes were made."); exit(3)
+        }
+        do { try complete(); exit(0) }
+        catch {
+            let pending = helperStatus == .requiresApproval || loginServices().contains { $0.status == .requiresApproval }
+            if pending { SMAppService.openSystemSettingsLoginItems() }
+            report(error.localizedDescription); exit(pending ? 2 : 1)
+        }
+    }
+    private static func report(_ message: String) {
+        FileHandle.standardError.write(Data((message + "\n").utf8))
+    }
     static func runHelperCommand() -> Never {
         let service = SMAppService.daemon(plistName: "ai.nightr.powerhelper.plist")
         do {
             try helper()
             if service.status == .enabled { exit(0) }
-            FileHandle.standardError.write(Data("Complete Nightr helper approval in System Settings → Login Items.\n".utf8))
+            report("Complete Nightr power helper approval in System Settings → General → Login Items.")
             exit(2)
         } catch {
-            FileHandle.standardError.write(Data((error.localizedDescription + "\n").utf8))
+            report(error.localizedDescription)
             exit(service.status == .requiresApproval ? 2 : 1)
         }
     }
@@ -174,35 +214,56 @@ import NightrPlatform
         _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
     }
     static func complete() throws {
+        let launchAtLogin: Bool
+        do { launchAtLogin = try SettingsStore().load().launchAtLogin }
+        catch { throw DesktopServiceError("Could not read the saved “Launch Nightr at login” preference. " + error.localizedDescription) }
         try helper()
-        let receipt = try login(enabled: SettingsStore().load().launchAtLogin)
+        let receipt = try login(enabled: launchAtLogin)
         if !receipt.pending.isEmpty { throw DesktopServiceError(approvalGuidance) }
     }
-    static let approvalGuidance = "Nightr is registered and waiting for approval. Review System Settings → General → Login Items."
+    static let approvalGuidance = "“Launch Nightr at login” is saved and waiting for approval. Review System Settings → General → Login Items."
+    static var helperStatus: DesktopServiceStatus { helperService().status }
+    private static func helperService() -> MacDesktopService {
+        MacDesktopService(name: "Power helper", service: .daemon(plistName: "ai.nightr.powerhelper.plist"),
+                          requiredPaths: ["Contents/Library/LaunchDaemons/ai.nightr.powerhelper.plist", "Contents/MacOS/nightr-powerhelper"])
+    }
     static func helper() throws {
-        var receipt = DesktopRegistrationReceipt()
-        try receipt.ensure(MacDesktopService(name: "Power helper", service: .daemon(plistName: "ai.nightr.powerhelper.plist")))
+        let receipt = try DesktopRegistrationReceipt.enable([helperService()])
         if !receipt.pending.isEmpty { throw DesktopServiceError("Complete Nightr power helper approval in System Settings → General → Login Items.") }
     }
+    private static func loginServices() -> [MacDesktopService] {
+        [MacDesktopService(name: "Nightr menu bar app", service: .mainApp, requiredPaths: ["Contents/MacOS/NightrApp"]),
+                        MacDesktopService(name: "Nightr background controller", service: .agent(plistName: "ai.nightr.agent.plist"),
+                                          requiredPaths: ["Contents/Library/LaunchAgents/ai.nightr.agent.plist", "Contents/MacOS/NightrApp"])]
+    }
     static func login(enabled: Bool) throws -> DesktopRegistrationReceipt {
-        let services = [MacDesktopService(name: "Nightr menu bar app", service: .mainApp),
-                        MacDesktopService(name: "Nightr background controller", service: .agent(plistName: "ai.nightr.agent.plist"))]
-        if enabled { return try DesktopRegistrationReceipt.enable(services) }
-        try DesktopRegistrationReceipt.disable(services)
-        return DesktopRegistrationReceipt()
+        do {
+            let services = loginServices()
+            if enabled { return try DesktopRegistrationReceipt.enable(services) }
+            try DesktopRegistrationReceipt.disable(services)
+            return DesktopRegistrationReceipt()
+        } catch {
+            throw DesktopServiceError("Could not \(enabled ? "enable" : "disable") “Launch Nightr at login”. " + error.localizedDescription)
+        }
     }
     static func systemWiFi() { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.wifi-settings-extension")!) }
 }
 @MainActor private final class MacDesktopService: DesktopServiceRegistration {
     let name: String
     let service: SMAppService
-    init(name: String, service: SMAppService) { self.name = name; self.service = service }
+    let requiredPaths: [String]
+    init(name: String, service: SMAppService, requiredPaths: [String]) {
+        self.name = name; self.service = service; self.requiredPaths = requiredPaths
+    }
     var status: DesktopServiceStatus {
+        guard requiredPaths.allSatisfy({ FileManager.default.fileExists(atPath: Bundle.main.bundleURL.appendingPathComponent($0).path) }) else { return .missingBundleFiles }
         switch service.status {
         case .notRegistered: return .notRegistered
         case .enabled: return .enabled
         case .requiresApproval: return .requiresApproval
-        case .notFound: return .unavailable
+        // A lookup error alone is not evidence of missing app files or successful
+        // registration/removal. The receipt handles the requested operation.
+        case .notFound: return .notFound
         @unknown default: return .unavailable
         }
     }
