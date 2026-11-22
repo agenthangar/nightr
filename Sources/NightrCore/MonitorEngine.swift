@@ -52,7 +52,7 @@ public struct ControllerState: Codable, Equatable, Sendable {
 }
 public enum MonitorEvent: Sendable {
     case bootstrap(wasUnclean: Bool, afterDesktopInstall: Bool = false)
-    case lifecycleStarted, lifecycleStopped, start, stop, tick(MachineSample), sample(MachineSample), sleep, normalWake, maintenanceWake, pathChanged
+    case lifecycleStarted, lifecycleStopped, start, stop, beginForce, endForce, tick(MachineSample), sample(MachineSample), sleep, normalWake, maintenanceWake, pathChanged
     case internetResult(UUID, Bool), hotspotResult(UUID, JoinResult)
     case retryNow, tryAgain, skipFallback, settings(Settings), login, crashed, ownershipLost
 }
@@ -71,6 +71,18 @@ public struct MonitorEngine: Sendable {
     public private(set) var holding = false
     public private(set) var verificationToken: UUID?
     public private(set) var joinToken: UUID?
+    // Force is a session override. Only the pre-existing enabled intent may survive a restart.
+    public private(set) var forceMode = false
+    private var forcePriorIntent: (enabled: Bool, pause: PauseReason?)?
+    public var journalState: ControllerState {
+        var durable = state
+        if let prior = forcePriorIntent, !prior.enabled || prior.pause == .loginOptOut {
+            durable.desiredEnabled = prior.enabled
+            durable.pause = prior.pause
+            durable.resumePause = nil
+        }
+        return durable
+    }
     private var asleep = false
     private var maintenance = false
     private var pendingSettings: Settings?
@@ -82,7 +94,7 @@ public struct MonitorEngine: Sendable {
     public init(settings: Settings = Settings(), state: ControllerState = ControllerState(), sample: MachineSample = MachineSample()) { self.settings = settings; self.state = state; self.sample = sample; self.asleep = state.pause == .asleep || state.pause == .maintenanceWake; self.maintenance = state.pause == .maintenanceWake }
     public mutating func replaceActivityObservation(_ observation: ActivityObservation?) { sample.activity = observation }
     public var verificationEligible: Bool {
-        settings.monitoring && settings.internet && state.desiredEnabled && !asleep && !maintenance && sample.setupReady && !unsafeBattery &&
+        !forceMode && settings.monitoring && settings.internet && state.desiredEnabled && !asleep && !maintenance && sample.setupReady && !unsafeBattery &&
         ![PauseReason.stopped, .ownership, .crashLimit, .loginOptOut].contains(where: { state.pause == $0 })
     }
     public var unsafeBattery: Bool { settings.batteryProtection && sample.onBattery && (sample.batteryPercent.map { $0 < settings.batteryBelow } ?? true) }
@@ -100,10 +112,34 @@ public struct MonitorEngine: Sendable {
                 else if state.crashRestarts > 3 { state.pause = .crashLimit }
                 else if !hardPause && !asleep { refreshSamples(now: now); state.lastInternetVerified = false; state.internet = .unknown }
             }
+        case .beginForce:
+            guard !forceMode, state.pause != .ownership, state.pause != .crashLimit else { return [] }
+            forcePriorIntent = (state.desiredEnabled, state.pause)
+            forceMode = true
+            state.desiredEnabled = true
+            if !asleep && !maintenance { state.pause = nil }
+            state.resumePause = nil
+            state.internet = .unknown
+            state.lastInternetVerified = false
+            cancel(&effects)
+        case .endForce:
+            guard forceMode else { return [] }
+            forceMode = false
+            if let prior = forcePriorIntent, !prior.enabled || prior.pause == .loginOptOut {
+                state.desiredEnabled = prior.enabled
+                state.pause = prior.pause
+            }
+            forcePriorIntent = nil
+            state.lastVerificationStarted = nil
+            refreshSamples(now: now)
         case .stop:
+            forceMode = false
+            forcePriorIntent = nil
             state.desiredEnabled = false; state.pause = .stopped; state.failureBeganAt = nil
             cancel(&effects); release(&effects)
         case .start:
+            forceMode = false
+            forcePriorIntent = nil
             state.desiredEnabled = true; state.pause = nil; state.resumePause = nil; state.crashRestarts = 0
             refreshSamples(now: now); state.internet = .unknown; state.lastInternetVerified = false
         case .settings(let value): pendingSettings = value
@@ -177,6 +213,10 @@ public struct MonitorEngine: Sendable {
         else if hardPause { cancel(&effects); release(&effects) }
         else if !sample.setupReady { rememberSafetyPause(); state.pause = .setup; cancel(&effects); release(&effects) }
         else if unsafeBattery { rememberSafetyPause(); state.pause = .battery; cancel(&effects); release(&effects) }
+        else if forceMode {
+            state.pause = nil
+            if !holding { holding = true; effects.append(.acquireHold(settings)) }
+        }
         else if !hardPause {
             if state.pause == .battery || state.pause == .setup { state.pause = state.resumePause; state.resumePause = nil; refreshSamples(now: now); state.internet = .stale }
             if state.pause != .inactivity {
@@ -207,7 +247,7 @@ public struct MonitorEngine: Sendable {
         resetConditions(); state.lastAgentActiveAt = now; state.lastInternetAvailableAt = now; state.agentSamples = 0
     }
     public var inferenceEligible: Bool {
-        settings.localInference && pendingSettings?.localInference != false && !settings.forever && state.desiredEnabled && !asleep && !maintenance && sample.setupReady && !unsafeBattery && !hardPause && state.pause != .inactivity && state.resumePause != .inactivity
+        !forceMode && settings.localInference && pendingSettings?.localInference != false && !settings.forever && state.desiredEnabled && !asleep && !maintenance && sample.setupReady && !unsafeBattery && !hardPause && state.pause != .inactivity && state.resumePause != .inactivity
     }
     private func inferenceActive(now: Date) -> Bool { inferenceEligible && (sample.activity?.hasActiveInference(at: now) ?? false) }
     private func checkingAllowance(now: Date) -> Bool {

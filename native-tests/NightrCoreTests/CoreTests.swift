@@ -10,6 +10,37 @@ import Glibc
 
 final class CoreTests: XCTestCase {
     let now = Date(timeIntervalSince1970: 1_000)
+    func testBatteryCutoffDefaultsAndSavedOptOut() throws {
+        XCTAssertTrue(Settings().batteryProtection)
+        XCTAssertTrue(try JSONDecoder().decode(Settings.self, from: Data("{}".utf8)).batteryProtection)
+        XCTAssertFalse(try JSONDecoder().decode(Settings.self, from: Data(#"{"battery_protection":false}"#.utf8)).batteryProtection)
+    }
+
+    func testForceOverridesChecksButHonorsSafetyAndOriginalIntent() {
+        let now = Date()
+        var engine = MonitorEngine()
+        _ = engine.handle(.beginForce, now: now)
+        XCTAssertTrue(engine.holding)
+        XCTAssertFalse(engine.verificationEligible)
+        XCTAssertFalse(engine.journalState.desiredEnabled)
+        _ = engine.handle(.beginForce, now: now)
+        _ = engine.handle(.tick(.init(onBattery: true, batteryPercent: 5)), now: now)
+        XCTAssertFalse(engine.holding)
+        XCTAssertEqual(engine.state.pause, .battery)
+        _ = engine.handle(.endForce, now: now)
+        XCTAssertFalse(engine.state.desiredEnabled)
+        _ = engine.handle(.start, now: now)
+        _ = engine.handle(.beginForce, now: now)
+        XCTAssertTrue(engine.journalState.desiredEnabled)
+        _ = engine.handle(.endForce, now: now)
+        XCTAssertTrue(engine.state.desiredEnabled)
+        XCTAssertFalse(engine.settings.forever)
+        _ = engine.handle(.beginForce, now: now)
+        _ = engine.handle(.stop, now: now)
+        XCTAssertFalse(engine.forceMode)
+        XCTAssertFalse(engine.holding)
+    }
+
     func testLegacyDefaultsAndPoliciesRoundTrip() throws {
         let settings = try JSONDecoder().decode(Settings.self, from: Data("{\"requirement\":99,\"agent\":false,\"internet\":false,\"every\":900,\"grace\":90001,\"dim\":true,\"inactivity\":47}".utf8))
         XCTAssertEqual(settings.requirement, .count(99)); XCTAssertFalse(settings.monitoring)
@@ -481,7 +512,7 @@ final class ProtectionInterleavingTests: XCTestCase {
         await executor.submit(Settings(), epoch: 1)
         await platform.waitForAcquire()
         await executor.submit(nil, epoch: 2)
-        var newer = Settings(); newer.batteryProtection = true
+        var newer = Settings(); newer.batteryBelow = 30
         await executor.submit(newer, epoch: 3)
         await platform.completeAcquire()
         await executor.flush()

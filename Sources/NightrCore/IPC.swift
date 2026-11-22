@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ControllerCommand: String, Codable, Sendable { case status, start, stop, applySettings, retryNow, tryAgain, skipFallback, prepareUpdate, inferenceBegin, inferenceHeartbeat, inferenceEnd }
+public enum ControllerCommand: String, Codable, Sendable { case status, start, stop, beginForce, endForce, applySettings, retryNow, tryAgain, skipFallback, prepareUpdate, inferenceBegin, inferenceHeartbeat, inferenceEnd }
 public struct ControllerRequest: Codable, Sendable {
     public static let version = 1
     public var version: Int = Self.version
@@ -15,11 +15,13 @@ public struct ControllerRequest: Codable, Sendable {
 public struct ControllerStatus: Codable, Sendable {
     public var state: ControllerState
     public var settings: Settings
+    public var forceMode: Bool?
     public var holding: Bool
     public var verificationEligible: Bool
     public var sample: MachineSample
     public var message: String?
     public init(engine: MonitorEngine, message: String? = nil, holding: Bool? = nil) {
+        forceMode = engine.forceMode
         state = engine.state; settings = engine.settings; self.holding = holding ?? engine.holding
         verificationEligible = engine.verificationEligible; sample = engine.sample; self.message = message
     }

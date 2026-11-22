@@ -12,7 +12,7 @@ import time
 here = Path(__file__).resolve().parent
 repo = here.parents[1]
 app_sources = repo / "Sources/NightrApp"
-views = [here / "SettingsPreview.swift", app_sources / "SettingsToolbar.swift", app_sources / "HotspotJoinMode.swift"]
+views = [app_sources / "CompactSettingsForm.swift", here / "SettingsPreview.swift", app_sources / "SettingsToolbar.swift", app_sources / "HotspotJoinMode.swift"]
 key = hashlib.sha256(os.fsencode(repo)).hexdigest()[:16]
 cache = Path.home() / "Library/Caches/ai.nightr.settings-preview" / key
 cache.mkdir(parents=True, exist_ok=True, mode=0o700)

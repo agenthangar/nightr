@@ -47,7 +47,7 @@ def test_defaults_and_values_do_not_write(isolated):
     assert result.stdout.splitlines() == ["dim=0", "display_on=0", "lock=1", "forever=0", "agent=1", "internet=1", "requirement=all", "grace=900",
                                           "every=30", "retries=3", "backoff=30", "hotspot=0",
                                           "hotspot_ssid=", "hotspot_after=300", "hotspot_timeout=30",
-                                          "battery_protection=0", "battery_below=20", "hotspot_attempts=3", "launch_at_login=1"]
+                                          "battery_protection=1", "battery_below=20", "hotspot_attempts=3", "launch_at_login=1"]
     shown = run_config(isolated, "--show")
     assert shown.returncode == 0
     assert "Lock" in shown.stdout and "Display" in shown.stdout
@@ -565,12 +565,13 @@ def test_battery_config_rejects_invalid_types_and_bounds(isolated, bad):
 
 
 def test_battery_config_defaults_bounds_and_independence(isolated):
-    assert config.validate({})['battery_protection'] is False
+    assert config.validate({})['battery_protection'] is True
+    assert config.validate({'battery_protection': False})['battery_protection'] is False
     assert config.validate({})['battery_below'] == 20
     for cutoff in (1, 20, 100):
         assert config.validate({'battery_below': cutoff})['battery_below'] == cutoff
     shown = run_config(isolated, '--show').stdout
-    assert 'Battery protection\n  Enabled   off\n  Below     20% (inactive)' in shown
+    assert 'Battery protection\n  Enabled   on\n  Below     20% on battery' in shown
     values = config.validate({'battery_protection': True, 'battery_below': 25,
                               'forever': True, 'requirement': 'none'})
     assert config._choice('battery_protection', values) == 'on'
@@ -581,6 +582,8 @@ def test_battery_config_defaults_bounds_and_independence(isolated):
 @pytest.mark.parametrize('columns,lines', [(80, 24), (44, 20), (32, 12)])
 def test_battery_menu_edit_review_save_and_discard(isolated, columns, lines):
     _, path = isolated
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({'battery_protection': False}))
     steps = b'j' * list(config.LABELS).index('battery_protection')
     output = _pty_config(isolated, [
         (b'Local settings', steps + b'\rj\r'),

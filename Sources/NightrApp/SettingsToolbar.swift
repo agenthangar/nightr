@@ -47,8 +47,9 @@ extension NSColor {
 enum SettingsLayout {
     static let contentInset: CGFloat = 20
     static let labelWidth: CGFloat = 160
-    static let width: CGFloat = 600
-    static let bodyHeight: CGFloat = 590
+    static let formInset: CGFloat = 22
+    static let width: CGFloat = 470
+    @MainActor static var bodyHeight: CGFloat { min(630, NSScreen.main?.visibleFrame.height ?? 630) }
 }
 
 /// Keep the approved fills and contrast when Settings is inactive as well as

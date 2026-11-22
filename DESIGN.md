@@ -20,9 +20,9 @@ Start/Stop action above the diagnostic detail. Separate configured behavior from
 observed state. On, Off, Paused, Recovering and Error have textual labels as well
 as distinguishable glyph treatments. Do not rely on color alone.
 
-Settings uses a compact native window approximately 600px wide with General,
+Settings uses a compact native window 470pt wide and up to 630pt high with General,
 Protection, Connectivity and Advanced sections. Use 15px labels, 13px explanatory
-text and aligned rows around 30–34px high. Keep padding modest and Save, Cancel
+text and aligned 37pt rows. Keep padding modest and Save, Cancel
 and Reset visible. One draft spans all sections; switching never loses pending
 values. Preserve every existing setting. Keyboard focus enters the selected tab,
 stays inside the dialog, and returns to the invoking control on Save or Cancel.
@@ -39,23 +39,19 @@ macOS. Activating it requests permission or opens notification settings.
 The visual reference is [Rectangle Settings](https://rectangleapp.com/assets/images/shortcutScreenshot.jpg).
 Borrow its native density and organization, not its product controls.
 
-Protection is one simple decision followed by two quiet details:
-- **Keep Mac awake:** native grouped radios, “Automatically” / “Until I stop,”
-  map directly to `forever=false/true`. Only Automatically shows the compact,
-  left-aligned “Agent is active” and “Internet is available” checkboxes. With
-  both selected and `require=all`, show only “Both must apply.” A single selected
-  condition needs no helper. Imported non-all policy shows “Custom CLI policy
-  retained” instead. No separate Protection heading or introduction is needed.
-- **When lid closes:** a compact Display selector (Off / On / Dim) and left-aligned
-  “Lock Mac” checkbox, preserving the existing settings.
-- **On battery:** one row, “[checkbox] Allow sleep below [20] %.” Disabling it
-  preserves the number. The only helper is “Plug in or recharge to resume.” It
-  applies in both awake modes, releases the hold on low battery, and never
-  forces sleep. AC power does not trigger the cutoff.
+The app and the hot-reload preview render the same native Settings form.
+Protection uses three groups.
 
-Use modest spacing and quiet divider lines; do not create extra cards or distant
-checkboxes. Keep the mode radios keyboard-native and preserve their focus when
-switching. Hidden automatic conditions retain their selection and are excluded
+- **Keep Mac awake** uses a Mode menu for Automatically and Until I stop.
+  Automatically shows trailing checkboxes for agent activity, internet availability
+  and local generation. The Connectivity tab contains the network controls.
+- **When lid closes** aligns the Display menu and Lock Mac checkbox to the
+  same trailing edge as Mode.
+- **On battery** enables Allow sleep below at 20% by default. Preserve an
+  explicit opt-out and retain the threshold when disabled. On battery, Nightr
+  releases its hold below the cutoff in either awake mode.
+
+Hidden automatic conditions retain their selection and are excluded
 from focus. Mode switches do not rewrite either `checks` or the legacy `require`.
 Only an intentional condition toggle normalizes `require=all`. Rendering,
 browsing and unrelated Save preserve imported policies and empty legacy checks.
@@ -63,27 +59,10 @@ A newly edited empty Automatic selection shows “Select one, or choose Until I
 stop.” The CLI retains its full legacy policy controls. All fields share one
 Save/Cancel/Reset draft and battery safety applies regardless of the awake mode.
 
-Connectivity uses the same quiet native layout as Protection: no duplicate panel
-title or introductory paragraph, 15px semibold foreground group headings, modest
-spacing and subtle dividers. Keep three groups:
-- **Connection:** one low-contrast strip with a small Wi-Fi glyph, a truthful
-  state label and discreet Sample marker. Separate independently verified
-  internet from probing, stale data and association alone. Use at most one
-  concise outage line, such as “Hotspot attempt 2 of 3.” “3 attempts used · still
-  checking internet” is only valid while verification is eligible; asleep,
-  stopped and unsafe states must say checks are paused.
-- **Hotspot fallback:** a left-aligned “Use saved hotspot” checkbox, with nearby
-  indented labels “Hotspot” (selected name and Choose) and “Try after.” Preserve the exact seconds value and
-  its visible unit. Disabling fallback disables the two fields without clearing
-  their values. Show the configured total attempt limit and clarify that internet checks continue.
-- **macOS settings:** “Status only · change in System Settings.” The single
-  “Auto-join iPhone hotspot” box reflects only the joining setting: Automatic is
-  checked, Ask/Unavailable is empty, Not checked has a dash. Instant Hotspot
-  device eligibility is prerequisite context, never a conflicting status box.
-  Keep the compact high-contrast 20px status box and status-aware guidance button;
-  it is not an OS switch. Defaults remain unknown and fixtures live outside the
-  product. The dialog identifies current status, purpose and System Settings path.
-  The single outer disclosure says “Preview does not read macOS settings.”
+Connectivity places internet verification and the macOS Ask to join hotspots
+preference at the top. The latter opens Wi-Fi Settings. Hotspot fallback groups
+the enable checkbox, network chooser, delay and attempt limit. Selecting a
+network enables fallback. Failed credential access exposes the repair action.
 
 Settings keeps its header and actions outside the scrollable content. Only the
 content pane scrolls, so the last source row cannot sit beneath the footer.

@@ -77,6 +77,8 @@ public actor ControllerService {
                     }
                 }
                 requestError = await send(.start)
+            case .beginForce: requestError = await send(.beginForce)
+            case .endForce: requestError = await send(.endForce)
             case .stop: requestError = await send(.stop)
             case .applySettings:
                 guard let settings = request.settings else { return ControllerResponse(error: "settings required") }
@@ -193,5 +195,5 @@ public actor ControllerService {
         await cancelPlatformOperations(); protectionEpoch += 1; await protection?.submit(nil, epoch: protectionEpoch); await protection?.flush(); protection = nil
         socket?.stop(); socket = nil; ownership = nil
     }
-    private func persist() throws { try StateJournal.save(engine.state, directory: runtimeDirectory) }
+    private func persist() throws { try StateJournal.save(engine.journalState, directory: runtimeDirectory) }
 }

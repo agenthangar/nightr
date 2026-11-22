@@ -34,7 +34,7 @@ DEFAULTS = {
     "hotspot_ssid": "",
     "hotspot_after": 300,
     "hotspot_timeout": 30,
-    "battery_protection": False,
+    "battery_protection": True,
     "battery_below": 20,
     "hotspot_attempts": 3,
     "launch_at_login": True,

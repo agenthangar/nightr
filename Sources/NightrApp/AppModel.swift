@@ -109,8 +109,8 @@ import NightrPlatform
         }
     }
     func command(_ command: ControllerCommand, settings: NightrCore.Settings? = nil) {
-        if command == .stop { startIntent.cancel() }
-        let startToken = command == .start ? startIntent.begin() : nil
+        if command == .stop || command == .endForce { startIntent.cancel() }
+        let startToken = (command == .start || command == .beginForce) ? startIntent.begin() : nil
         Task {
             if command == .stop, let connecting { _ = await connecting.value }
             do {
@@ -119,10 +119,10 @@ import NightrPlatform
                 // An application rejection is a completed response, never a retry signal.
                 error = response.error; status = response.status
             } catch is ControllerUnavailableError {
-                if command == .start, let startToken {
+                if let startToken {
                     guard startIntent.isCurrent(startToken), await boot(), startIntent.isCurrent(startToken) else { return }
                     do {
-                        guard let response = try await controllerCommands.request(.init(command: .start, settings: settings), intent: startIntent, token: startToken) else { return }
+                        guard let response = try await controllerCommands.request(.init(command: command, settings: settings), intent: startIntent, token: startToken) else { return }
                         error = response.error; status = response.status
                     } catch { self.error = error.localizedDescription }
                 } else if command == .stop {

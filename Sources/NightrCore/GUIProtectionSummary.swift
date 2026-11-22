@@ -13,7 +13,8 @@ public struct GUIProtectionSummary {
         case .checking: internet = "Checking…"
         case .unavailable: internet = "Unavailable"
         case .stale: internet = "Stale observation"
-        case .unknown, nil: internet = "Not checked"
+        case .unknown: internet = "Not checked"
+        case nil: internet = error == nil ? "Checking…" : "Not checked"
         }
         guard let status else {
             if error == nil {
@@ -32,7 +33,8 @@ public struct GUIProtectionSummary {
         } else if status.holding {
             activelyProtecting = true
             label = "On"; symbol = "checkmark.circle.fill"
-            if status.settings.localInference && !status.settings.forever && status.sample.activity?.hasActiveInference(at: Date()) == true {
+            if status.forceMode == true { detail = "Force mode is keeping your Mac awake." }
+            else if status.settings.localInference && !status.settings.forever && status.sample.activity?.hasActiveInference(at: Date()) == true {
                 detail = "Local inference is keeping your Mac awake."
             } else if status.sample.agentObservation == .checking {
                 detail = "Your Mac is being kept awake while agent activity is checked."
