@@ -183,7 +183,7 @@ nosleep() {
   local forever=0 display_on=0 dim=0 dim_requested=0 lock=1 grace=900 every=30 retries=3 backoff=30 defaults setting value
   local agent=1 internet=1 monitoring=1 requirement=all required_count=0 enabled_count=0
   local hotspot=0 hotspot_ssid='' hotspot_after=300 hotspot_timeout=30
-  local battery_protection=0 battery_below=20
+  local battery_protection=1 battery_below=20
   defaults=$(_nosleep_config --values) || return $?
   for setting in ${(f)defaults}; do
     value=${setting#*=}

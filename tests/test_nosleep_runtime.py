@@ -224,7 +224,7 @@ def nosleep_loop(zsh, tmp_path):
             env.setdefault("TERM", "xterm-256color")
         size = f"COLUMNS={int(columns)}; " if columns is not None else ""
         result = zsh(setup + f'\n{size}nosleep {args}; rc=$?; print -r -- "exit=$rc at=$EPOCHSECONDS"',
-                     LOOP_LOG=str(log), FAKE_ONLINE=env.pop("FAKE_ONLINE", "1"),
+                     LOOP_LOG=str(log), FAKE_BATTERY=env.pop("FAKE_BATTERY", "100"), FAKE_ONLINE=env.pop("FAKE_ONLINE", "1"),
                      FAKE_BUSY=env.pop("FAKE_BUSY", "0"),
                      FAKE_LID_AT=env.pop("FAKE_LID_AT", "1000"), _tty=tty, **env)
         assert result.returncode == 0, result.stdout + result.stderr
@@ -1539,7 +1539,7 @@ def test_nosleep_cli_contract_documents_only_hotspot_mode(zsh):
 def test_zsh_nosleep_requirement_none_and_forever_are_independent(nosleep_loop, args):
     result, log = nosleep_loop(args + " -d dim -g0 -e2 -r0", FAKE_STOP_AT="1006", FAKE_HOTSPOT="1")
     assert "exit=130 at=1006" in result.stdout
-    assert "Prevented until Ctrl-C" in result.stdout
+    assert "Prevented · battery cutoff" in result.stdout
     assert "(inactive)" in result.stdout and "Inactive (requires internet checks)" in result.stdout
     assert not any(line.startswith(("busy ", "online ", "hotspot ")) for line in log)
     assert "hold 1000 -dims" in log and any(line.startswith("brightness ") for line in log)

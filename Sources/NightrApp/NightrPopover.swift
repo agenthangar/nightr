@@ -42,7 +42,7 @@ struct NightrPopover: View {
             Divider().padding(.top, 11)
             VStack(spacing: 11) {
                 diagnostic("Internet", status?.state.internet == .verified ? "Connected" : state.internet,
-                           verified: status?.state.internet == .verified, pending: status?.state.internet == .checking)
+                           verified: status?.state.internet == .verified, pending: state.internet == "Checking…")
                 diagnostic("Agent", agentLabel, verified: agentLabel == "Active", pending: agentLabel == "Checking…")
                 diagnostic("Battery", status?.sample.batteryPercent.map { "\($0)%, \(status?.sample.onBattery == true ? "Battery" : "Power adapter")" } ?? "Not checked")
                 diagnostic("Lid", status.map { $0.sample.lidClosed ? "Closed" : "Open" } ?? "Not checked")
@@ -96,6 +96,7 @@ struct NightrPopover: View {
         case .checking: return "Checking…"
         case .active: return "Active"
         case .idle: return "No activity observed"
+        case nil where status == nil && error == nil: return "Checking…"
         case nil: return status?.sample.agentActive == true ? "Active" : "Not checked"
         }
     }

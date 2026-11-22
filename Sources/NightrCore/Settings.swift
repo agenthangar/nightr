@@ -43,7 +43,7 @@ public struct Settings: Codable, Equatable, Sendable {
     public var hotspotAfter = 300
     public var hotspotTimeout = 30
     public var hotspotAttempts = 3
-    public var batteryProtection = false
+    public var batteryProtection = true
     public var batteryBelow = 20
     // Retained if imported; the app deliberately does not invent activity-timer semantics.
     public var inactivity: Int?

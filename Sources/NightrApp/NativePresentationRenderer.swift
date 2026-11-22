@@ -18,7 +18,7 @@ import NightrController
         draft.hotspotSSID = "Sample iPhone"
         draft.displayOn = true
         draft.lock = false
-        draft.batteryProtection = true
+        precondition(draft.batteryProtection && draft.batteryBelow == 20)
         for dark in [false, true] {
             let scheme: ColorScheme = dark ? .dark : .light
             let suffix = dark ? "dark" : "light"
@@ -166,15 +166,20 @@ import NightrController
         let titleFrame = frameView.convert(title.bounds, from: title)
         precondition(abs(titleFrame.midX - frameView.bounds.midX) <= 1 && title.alignment == .center)
         precondition(window.title == title.stringValue && window.titleVisibility == .hidden)
-        precondition(window.frame.size == NSSize(width: 600, height: 590), "Settings window size drifted from the approved preview")
-        guard section == .general else { return }
-        try checkGeneralCheckboxes(capture, width: frameView.bounds.width)
+        precondition(window.frame.size == NSSize(width: 470, height: SettingsLayout.bodyHeight), "Settings window size drifted from the approved preview")
+        guard section == .general || section == .protection else { return }
         // Read the rendered pane so unexpected SwiftUI-only rows are covered as well.
         let request = VNRecognizeTextRequest()
         request.recognitionLanguages = ["en-US"]
         try VNImageRequestHandler(url: capture).perform([request])
         let labels = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ").lowercased()
-        for expected in ["launch app at login", "desktop notification prompt"] where !labels.contains(expected) {
+        if section == .protection {
+            guard labels.contains("allow sleep below"), labels.contains("internet is available"),
+                  !labels.contains("connectivity settings") else { throw RenderError.generalControl("Protection rows") }
+            return
+        }
+        try checkGeneralCheckboxes(capture, width: frameView.bounds.width)
+        for expected in ["launch at login", "hotspot notifications", "enable force mode"] where !labels.contains(expected) {
             throw RenderError.generalControl(expected)
         }
         for extra in ["power helper", "set up nightr"] where labels.contains(extra) {
@@ -189,9 +194,9 @@ import NightrController
         guard let bitmap = NSBitmapImageRep(data: try Data(contentsOf: capture)) else { throw RenderError.bitmap }
         let scale = CGFloat(bitmap.pixelsWide) / width
         func pixels(_ points: CGFloat) -> Int { Int((points * scale).rounded()) }
-        let trailingEdge = width - SettingsLayout.contentInset
+        let trailingEdge = width - SettingsLayout.formInset
         let columns = pixels(trailingEdge - 32)..<pixels(trailingEdge)
-        let rows = pixels(202)..<pixels(226)
+        let rows = pixels(172)..<pixels(196)
         var ink = 0
         var different = 0
         func distance(_ a: NSColor, _ b: NSColor) -> CGFloat {
@@ -202,7 +207,7 @@ import NightrController
             guard let background = bitmap.colorAt(x: columns.lowerBound, y: y) else { throw RenderError.bitmap }
             for x in columns {
                 guard let login = bitmap.colorAt(x: x, y: y),
-                      let notifications = bitmap.colorAt(x: x, y: y + pixels(36)) else { throw RenderError.bitmap }
+                      let notifications = bitmap.colorAt(x: x, y: y + pixels(38)) else { throw RenderError.bitmap }
                 if distance(login, background) > 0.04 { ink += 1 }
                 if distance(login, notifications) > 0.04 { different += 1 }
             }
@@ -230,7 +235,7 @@ import NightrController
         // Measure actual ink in the entire captured header, rather than a local
         // button bitmap: native bezel alignment can otherwise hide a misplaced
         // tile. The approved reference has General ink at y65–77.5 and its
-        // label at y88.5–97 in the 600 x 590 Settings window.
+        // label at y88.5–97 in the Settings window.
         func ink(in rows: Range<Int>) throws -> NSRect {
             var occupied = NSRect.null
             for y in rows {

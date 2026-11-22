@@ -72,6 +72,7 @@ final class GUIRoutingTests: XCTestCase {
             (true, false, .unknown, .setup)] {
             var state = ControllerState(); state.desiredEnabled = enabled; state.internet = internet; state.pause = pause
             let summary = GUIProtectionSummary(status: ControllerStatus(engine: MonitorEngine(state: state), holding: holding))
+            XCTAssertEqual(summary.activelyProtecting, holding)
             labels.insert(summary.label); symbols.insert(summary.symbol)
         }
         XCTAssertEqual(labels, ["Off", "On", "Paused", "Recovering", "Error"])

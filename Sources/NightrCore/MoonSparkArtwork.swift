@@ -4,7 +4,7 @@ import AppKit
 /// Approved concept 01. Cubic segments are the SVG's two circular arcs in its
 /// original 24 × 24 coordinate system (y down); no system-symbol substitution.
 public enum MoonSparkArtwork {
-    public static func path() -> CGPath {
+    public static func path(includingSpark: Bool = true) -> CGPath {
         let path = CGMutablePath()
         path.move(to: CGPoint(x: 15.6, y: 3.4))
         path.addCurve(to: CGPoint(x: 6.588128, y: 8.656157), control1: CGPoint(x: 11.709663, y: 2.682969), control2: CGPoint(x: 7.879385, y: 4.916971))
@@ -13,18 +13,23 @@ public enum MoonSparkArtwork {
         path.addCurve(to: CGPoint(x: 14.966991, y: 10.943257), control1: CGPoint(x: 18.033981, y: 15.289683), control2: CGPoint(x: 15.949049, y: 13.418044))
         path.addCurve(to: CGPoint(x: 15.6, y: 3.4), control1: CGPoint(x: 13.984933, y: 8.468471), control2: CGPoint(x: 14.219227, y: 5.676504))
         path.closeSubpath()
+        guard includingSpark else { return path }
         path.move(to: CGPoint(x: 19, y: 2))
         for (x, y): (CGFloat, CGFloat) in [(19.8,4.4),(22,5.2),(19.8,6),(19,8.4),(18.2,6),(16,5.2),(18.2,4.4)] { path.addLine(to: CGPoint(x: x, y: y)) }
         path.closeSubpath()
         return path
     }
     public static func draw(in context: CGContext, rect: CGRect, color: NSColor) {
+        draw(in: context, rect: rect, color: color, includingSpark: true, filled: false)
+    }
+    private static func draw(in context: CGContext, rect: CGRect, color: NSColor, includingSpark: Bool, filled: Bool) {
         context.saveGState()
         context.translateBy(x: rect.minX, y: rect.maxY)
         context.scaleBy(x: rect.width / 24, y: -rect.height / 24)
-        context.addPath(path()); context.setStrokeColor(color.cgColor)
+        context.addPath(path(includingSpark: includingSpark)); context.setStrokeColor(color.cgColor)
+        context.setFillColor(color.cgColor)
         context.setLineWidth(1.7); context.setLineCap(.round); context.setLineJoin(.round)
-        context.strokePath(); context.restoreGState()
+        context.drawPath(using: filled ? .fillStroke : .stroke); context.restoreGState()
     }
     /// The release icon and unbundled SwiftPM previews use the same artwork.
     public static func drawAppIcon(in context: CGContext, rect: CGRect) {
@@ -39,14 +44,18 @@ public enum MoonSparkArtwork {
         draw(in: context, rect: CGRect(x: 190, y: 190, width: 644, height: 644),
              color: NSColor(calibratedRed: 51/255, green: 39/255, blue: 20/255, alpha: 1))
     }
-    public static let menuImage: NSImage = {
+    public static let menuImage = makeMenuImage(active: false)
+    public static let activeMenuImage = makeMenuImage(active: true)
+
+    private static func makeMenuImage(active: Bool) -> NSImage {
         let image = NSImage(size: NSSize(width: 19, height: 19), flipped: false) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            draw(in: context, rect: rect, color: .black); return true
+            draw(in: context, rect: rect, color: .black, includingSpark: active, filled: active)
+            return true
         }
         image.isTemplate = true
         image.accessibilityDescription = "Nightr"
         return image
-    }()
+    }
 }
 #endif

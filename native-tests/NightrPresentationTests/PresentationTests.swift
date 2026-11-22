@@ -20,6 +20,9 @@ final class PresentationTests: XCTestCase {
     @MainActor func testApprovedArtworkIsIntrinsicTemplate() {
         XCTAssertEqual(MoonSparkArtwork.menuImage.size, NSSize(width: 19, height: 19))
         XCTAssertTrue(MoonSparkArtwork.menuImage.isTemplate)
+        XCTAssertTrue(MoonSparkArtwork.activeMenuImage.isTemplate)
+        XCTAssertEqual(MoonSparkArtwork.activeMenuImage.size, MoonSparkArtwork.menuImage.size)
+        XCTAssertNotEqual(MoonSparkArtwork.activeMenuImage.tiffRepresentation, MoonSparkArtwork.menuImage.tiffRepresentation)
     }
     #if DEBUG
     @MainActor func testActualNativeViewsRenderWithSyntheticData() throws {
