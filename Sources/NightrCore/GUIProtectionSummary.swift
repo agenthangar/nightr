@@ -2,6 +2,7 @@ import Foundation
 
 /// The desktop shows observed protection separately from enabled intent.
 public struct GUIProtectionSummary {
+    public private(set) var activelyProtecting = false
     public let label: String
     public let symbol: String
     public let detail: String
@@ -29,6 +30,7 @@ public struct GUIProtectionSummary {
         if error != nil || status.state.pause.map({ [PauseReason.setup, .ownership, .crashLimit].contains($0) }) == true {
             label = "Error"; symbol = "exclamationmark.triangle"; detail = "Protection needs attention. Review the details below."
         } else if status.holding {
+            activelyProtecting = true
             label = "On"; symbol = "checkmark.circle.fill"
             if status.settings.localInference && !status.settings.forever && status.sample.activity?.hasActiveInference(at: Date()) == true {
                 detail = "Local inference is keeping your Mac awake."

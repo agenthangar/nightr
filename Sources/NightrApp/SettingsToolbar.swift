@@ -51,15 +51,6 @@ enum SettingsLayout {
     static let bodyHeight: CGFloat = 590
 }
 
-struct SettingsHost: View {
-    @ObservedObject var model: AppModel
-    let close: () -> Void
-    var body: some View {
-        SettingsView(section: $model.presentation.section, status: model.status, store: model.store,
-                     apply: { try await model.applySettingsForSave($0) }, close: close)
-    }
-}
-
 /// Keep the approved fills and contrast when Settings is inactive as well as
 /// active; SwiftUI's standard macOS prominent style becomes gray when inactive.
 struct SettingsActionStyle: ButtonStyle {

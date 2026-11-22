@@ -14,6 +14,17 @@ python3 -m http.server 8765 --bind 127.0.0.1 --directory design-preview
 
 Then open `http://127.0.0.1:8765/`. Stop the server with Ctrl-C.
 
+## Native Settings preview on macOS
+
+Double-click [Open Settings Preview.command](native/Open%20Settings%20Preview.command). Edit
+[native/SettingsPreview.swift](native/SettingsPreview.swift) to reload the view in the
+open window. The selected tab and draft values survive a successful rebuild.
+Closing the window ends the watcher.
+
+The menu bar item labeled **Preview** mirrors the installed controller’s protection
+state. The Force button and Save act on the preview session. Connectivity reads the
+macOS hotspot preference when permitted and links to Wi-Fi Settings for inspection.
+
 ## Walkthrough
 
 1. **App & CLI:** Stop in the app, then enter `nightr status --json`. Try wake,

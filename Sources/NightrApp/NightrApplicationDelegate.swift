@@ -59,9 +59,11 @@ import NightrCore
         button.target = self
         button.action = #selector(togglePopover(_:))
         statusLabel = model.$status.combineLatest(model.$error)
-            .map { status, error in GUIProtectionSummary(status: status, error: error).label }
-            .removeDuplicates()
-            .sink { [weak button] label in button?.setAccessibilityLabel("Nightr, \(label)") }
+            .sink { [weak button] status, error in
+                let state = GUIProtectionSummary(status: status, error: error)
+                button?.image = state.activelyProtecting ? MoonSparkArtwork.activeMenuImage : MoonSparkArtwork.menuImage
+                button?.setAccessibilityLabel("Nightr, \(state.label)")
+            }
     }
 
     @objc private func togglePopover(_ sender: NSStatusBarButton) {

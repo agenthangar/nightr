@@ -6,6 +6,15 @@ import NightrCore
 import NightrController
 import NightrPlatform
 
+struct SettingsHost: View {
+    @ObservedObject var model: AppModel
+    let close: () -> Void
+    var body: some View {
+        SettingsView(section: $model.presentation.section, status: model.status, store: model.store,
+                     apply: { try await model.applySettingsForSave($0) }, close: close)
+    }
+}
+
 struct SettingsView: View {
     @Binding var section: NightrSettingsSection
     let status: ControllerStatus?
