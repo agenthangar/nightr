@@ -298,7 +298,7 @@ function render() {
     $('menu-icon').setAttribute('aria-expanded',String(S.open));
     $('popover').hidden = !S.open;
     $('popover').innerHTML = `
-      <div class="row"><span class="native-brand">${glyph} Nightr</span><span class="native-power" title="${S.safe?'Power adapter':'Battery power'}" aria-label="${S.safe?'Power adapter':'Battery power'}">⏻</span></div>
+      <div class="row"><span class="native-brand"><img src="nightr-app-icon.png" width="23" height="23" alt=""> Nightr</span><span class="native-power" title="${S.safe?'Power adapter':'Battery power'}" aria-label="${S.safe?'Power adapter':'Battery power'}">⏻</span></div>
       <div class="status-title"><span class="state-symbol">${v.status==='On'?'●':v.status==='Off'?'−':'Ⅱ'}</span>${v.status}</div>
       <p class="desc" data-checking="${v.reason === 'Checking agent activity…'}">${esc(v.reason)}</p>
       <button id="primary" class="native-primary ${S.enabled?'':'start'}">${S.enabled?'Stop protection':'Start protection'}</button>

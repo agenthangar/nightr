@@ -26,6 +26,19 @@ public enum MoonSparkArtwork {
         context.setLineWidth(1.7); context.setLineCap(.round); context.setLineJoin(.round)
         context.strokePath(); context.restoreGState()
     }
+    /// The release icon and unbundled SwiftPM previews use the same artwork.
+    public static func drawAppIcon(in context: CGContext, rect: CGRect) {
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.translateBy(x: rect.minX, y: rect.minY)
+        context.scaleBy(x: rect.width / 1024, y: rect.height / 1024)
+        let background = NSBezierPath(roundedRect: NSRect(x: 40, y: 40, width: 944, height: 944), xRadius: 210, yRadius: 210)
+        let gradient = NSGradient(starting: NSColor(calibratedRed: 1, green: 215/255, blue: 137/255, alpha: 1),
+                                  ending: NSColor(calibratedRed: 213/255, green: 146/255, blue: 45/255, alpha: 1))!
+        gradient.draw(in: background, angle: -45)
+        draw(in: context, rect: CGRect(x: 190, y: 190, width: 644, height: 644),
+             color: NSColor(calibratedRed: 51/255, green: 39/255, blue: 20/255, alpha: 1))
+    }
     public static let menuImage: NSImage = {
         let image = NSImage(size: NSSize(width: 19, height: 19), flipped: false) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }

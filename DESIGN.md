@@ -299,6 +299,10 @@ Use the Settings opened from the activity popover as the reference. The approved
 revision is [88b93ca](https://github.com/agenthangar/nightr/blob/88b93cabf1f2be3e311a6bc4ab4f75aa796e1713/design-preview/activity.html).
 Compare every Settings tab and the populated popover in both Light and Dark at
 the same logical size. Use the same synthetic model and preference values.
+Compare the visible symbol and label bounds inside each toolbar tile. In the
+General tab, the gear starts about 14 points below the tile’s top edge.
+The popover header uses the full-color desktop app icon. The menu bar uses the
+monochrome template glyph.
 
 The debug app’s `--render-presentations OUTPUT_DIRECTORY` command renders the
 production Settings window offscreen, including its title bar, and checks the
