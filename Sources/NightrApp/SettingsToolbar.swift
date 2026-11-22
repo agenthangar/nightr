@@ -6,6 +6,7 @@ import NightrCore
 extension Color {
     static let nightrAmber = Color(nsColor: .nightrAccent)
     static let nightrButtonAmber = Color(red: 242/255, green: 169/255, blue: 59/255)
+    static let nightrStatusGreen = Color(nsColor: .nightrStatusGreen)
 }
 private extension NSColor {
     static let nightrAccent = NSColor(name: nil) { appearance in
@@ -14,6 +15,17 @@ private extension NSColor {
         }
         return NSColor(calibratedRed: 117/255, green: 82/255, blue: 30/255, alpha: 1)
     }
+    static let nightrStatusGreen = NSColor(name: nil) { appearance in
+        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+            return NSColor(calibratedRed: 149/255, green: 206/255, blue: 166/255, alpha: 1)
+        }
+        return NSColor(calibratedRed: 40/255, green: 116/255, blue: 66/255, alpha: 1)
+    }
+}
+
+enum SettingsLayout {
+    static let contentInset: CGFloat = 26
+    static let labelWidth: CGFloat = 160
 }
 
 struct SettingsHost: View {

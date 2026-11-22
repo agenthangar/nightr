@@ -32,6 +32,7 @@ public struct Settings: Codable, Equatable, Sendable {
     public var forever = false
     public var agent = true
     public var internet = true
+    public var localInference = false
     public var requirement: Requirement = .all
     public var grace = 900
     public var every = 30
@@ -49,6 +50,7 @@ public struct Settings: Codable, Equatable, Sendable {
     public var launchAtLogin = true
     public init() {}
     enum CodingKeys: String, CodingKey, CaseIterable {
+        case localInference = "local_inference"
         case dim, displayOn = "display_on", lock, forever, agent, internet, requirement, grace, every, retries, backoff, hotspot
         case hotspotSSID = "hotspot_ssid", hotspotAfter = "hotspot_after", hotspotTimeout = "hotspot_timeout", hotspotAttempts = "hotspot_attempts"
         case batteryProtection = "battery_protection", batteryBelow = "battery_below", inactivity, launchAtLogin = "launch_at_login"
@@ -66,6 +68,7 @@ public struct Settings: Codable, Equatable, Sendable {
         lock = c.contains(.lock) ? try c.decode(Bool.self, forKey: .lock) : lock
         forever = c.contains(.forever) ? try c.decode(Bool.self, forKey: .forever) : forever
         agent = c.contains(.agent) ? try c.decode(Bool.self, forKey: .agent) : agent
+        localInference = c.contains(.localInference) ? try c.decode(Bool.self, forKey: .localInference) : localInference
         internet = c.contains(.internet) ? try c.decode(Bool.self, forKey: .internet) : internet
         requirement = c.contains(.requirement) ? try c.decode(Requirement.self, forKey: .requirement) : requirement
         grace = c.contains(.grace) ? try c.decode(Int.self, forKey: .grace) : grace

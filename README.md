@@ -50,6 +50,11 @@ and a saved hotspot. Hotspot recovery has a bounded attempt budget, independentl
 verified internet checks, and Saved/Nearby/Manual network selection. Nightr cannot
 remotely switch on an iPhone hotspot. Network wake settings are not part of Nightr.
 
+The menu and native CLI also show CPU and GPU utilization when available, loaded
+models and runtime details. An opt-in Protection setting lets a local inference
+integration keep the Mac awake while a model is working, including offline.
+See [local model activity](docs/cli.md#local-model-activity).
+
 Closed-lid protection uses a signed, authorized helper with an expiring lease.
 It requires exclusive control of macOS's global sleep-disable setting; other
 sleep utilities must not change that setting during a Nightr session.

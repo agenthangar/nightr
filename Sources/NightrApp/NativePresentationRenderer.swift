@@ -157,7 +157,14 @@ import NightrController
         if label == "Recovering" {
             var outage = OutageLedger(now: Date(timeIntervalSince1970: 0), settings: NightrCore.Settings()); outage.consumed = 2; state.outage = outage
         }
-        return ControllerStatus(engine: MonitorEngine(state: state, sample: MachineSample(batteryPercent: 84, agentActive: true, setupReady: label != "Error")), holding: label == "On")
+        let now = Date()
+        let activity = ActivityObservation(cpuPercent: 38, gpuPercent: 67, runtimes: [
+            .init(runtime: .ollama, version: "Sample", observedAt: now, models: [.init(id: "sample-coder", residency: .loaded, activity: .generating, contextTokens: 32768, memoryBytes: 9_600_000_000, startedAt: now.addingTimeInterval(-42), inferenceExpiresAt: now.addingTimeInterval(15))]),
+            .init(runtime: .lmStudio, version: "Sample", observedAt: now, models: [.init(id: "sample-reasoner", residency: .loaded, activity: .idle)]),
+            .init(runtime: .llamaCPP, observedAt: now, models: [.init(id: "sample-server", residency: .loaded)]),
+            .init(runtime: .mlx, observedAt: now, models: [.init(id: "sample-inventory", residency: .available)])
+        ])
+        return ControllerStatus(engine: MonitorEngine(state: state, sample: MachineSample(batteryPercent: 84, agentActive: true, setupReady: label != "Error", agentObservation: .active, activity: activity)), holding: label == "On")
     }
     private enum RenderError: Error { case bitmap }
 }

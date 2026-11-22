@@ -695,18 +695,25 @@ def test_menu_recovery_and_cancel_leave_no_saved_result(monkeypatch, keys):
 
 def test_native_settings_extensions_round_trip(isolated):
     _, path = isolated
-    values = config.validate({"hotspot_attempts": 10, "launch_at_login": False, "inactivity": 47, "requirement": 99})
+    values = config.validate({
+        "hotspot_attempts": 10, "launch_at_login": False, "inactivity": 47,
+        "requirement": 99, "local_inference": True,
+    })
     config.write(path, None, values)
     loaded, _ = config.read(path)
     assert loaded["hotspot_attempts"] == 10
     assert loaded["launch_at_login"] is False
     assert loaded["inactivity"] == 47
     assert loaded["requirement"] == 99
+    assert loaded["local_inference"] is True
     assert "10 total" in config._choice("hotspot_attempts", loaded)
     assert config._choice("launch_at_login", loaded) == "off"
 
 
-@pytest.mark.parametrize("data", [{"hotspot_attempts": 0}, {"hotspot_attempts": 11}, {"launch_at_login": 1}, {"inactivity": -1}, {"inactivity": True}])
+@pytest.mark.parametrize("data", [
+    {"hotspot_attempts": 0}, {"hotspot_attempts": 11}, {"launch_at_login": 1},
+    {"inactivity": -1}, {"inactivity": True}, {"local_inference": 1},
+])
 def test_native_setting_extensions_reject_invalid(data):
     with pytest.raises(ValueError):
         config.validate(data)

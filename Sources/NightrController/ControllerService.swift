@@ -23,6 +23,8 @@ public actor ControllerService {
     private var message: String?
     private var running = false
     private var persistenceError: String?
+    private var inferenceLeases = InferenceLeases()
+    private var rawSample = MachineSample()
     public init(platform: any ControllerPlatform, settingsStore: SettingsStore = SettingsStore(), runtimeDirectory: URL = NightrPaths.runtime) throws {
         self.platform = platform; self.settingsStore = settingsStore; self.runtimeDirectory = runtimeDirectory
         engine = MonitorEngine(settings: try settingsStore.load())
@@ -34,15 +36,16 @@ public actor ControllerService {
             let state = try StateJournal.load(directory: runtimeDirectory)
             engine = MonitorEngine(settings: try settingsStore.load(), state: state)
             let initialSample = await platform.sample()
+            rawSample = initialSample; inferenceLeases.clear()
             engine = MonitorEngine(settings: engine.settings, state: engine.state, sample: initialSample)
             let wasUnclean = engine.state.uncleanShutdown
             protection = ProtectionExecutor(platform: platform) { [weak self] epoch, holding, error in
                 await self?.protectionChanged(epoch: epoch, holding: holding, error: error)
             }
             running = true
-            socket = try ControllerSocket(directory: runtimeDirectory) { [weak self] request in
+            socket = try ControllerSocket(directory: runtimeDirectory) { [weak self] request, peer in
                 guard let self else { return ControllerResponse(error: "controller stopping") }
-                return await self.request(request)
+                return await self.request(request, peer: peer)
             }
             await send(.bootstrap(wasUnclean: wasUnclean, afterDesktopInstall: afterDesktopInstall))
             timer = Task { [weak self] in
@@ -57,10 +60,11 @@ public actor ControllerService {
     }
     public func isRunning() -> Bool { running }
     public func status() -> ControllerStatus { ControllerStatus(engine: engine, message: message, holding: protectionConfirmed && engine.holding) }
-    public func request(_ request: ControllerRequest) async -> ControllerResponse {
+    public func request(_ request: ControllerRequest, peer: ControllerPeer? = nil) async -> ControllerResponse {
         guard request.version == ControllerRequest.version else { return ControllerResponse(error: "incompatible controller protocol") }
         do {
             var requestError: String?
+            var inferenceToken: UUID?
             switch request.command {
             case .status: break
             case .start:
@@ -80,14 +84,45 @@ public actor ControllerService {
             case .retryNow: requestError = await send(.retryNow)
             case .tryAgain: requestError = await send(.tryAgain)
             case .skipFallback: requestError = await send(.skipFallback)
+            case .inferenceBegin, .inferenceHeartbeat, .inferenceEnd:
+                guard running, let peer, peer.uid == getuid(), engine.inferenceEligible else { return ControllerResponse(error: "local inference is disabled or protection is paused; producer cannot start protection") }
+                let uptime = ProcessInfo.processInfo.systemUptime
+                switch request.command {
+                case .inferenceBegin:
+                    guard let metadata = request.inference else { return ControllerResponse(error: "inference metadata required") }
+                    inferenceToken = try inferenceLeases.begin(metadata, peer: peer, uptime: uptime)
+                case .inferenceHeartbeat:
+                    guard let token = request.inferenceToken else { return ControllerResponse(error: "inference token required") }
+                    try inferenceLeases.heartbeat(token, peer: peer, uptime: uptime); inferenceToken = token
+                case .inferenceEnd:
+                    guard let token = request.inferenceToken else { return ControllerResponse(error: "inference token required") }
+                    try inferenceLeases.end(token, peer: peer, uptime: uptime)
+                default: break
+                }
+                requestError = await send(.tick(rawSample))
             case .prepareUpdate: await shutdown(preserveIntent: true)
             }
-            return ControllerResponse(status: status(), error: requestError ?? persistenceError)
+            return ControllerResponse(status: status(), error: requestError ?? persistenceError, inferenceToken: inferenceToken)
         } catch { return ControllerResponse(error: error.localizedDescription) }
     }
     @discardableResult public func send(_ event: MonitorEvent) async -> String? {
         guard running else { return "controller stopping" }
-        let effects = engine.handle(event, now: Date())
+        let now = Date()
+        let effectiveEvent: MonitorEvent
+        switch event {
+        case .tick(let sample), .sample(let sample):
+            rawSample = sample
+            var effective = sample
+            effective.activity = inferenceLeases.adding(to: sample.activity, now: now, uptime: ProcessInfo.processInfo.systemUptime)
+            if case .tick = event { effectiveEvent = .tick(effective) } else { effectiveEvent = .sample(effective) }
+        case .stop, .sleep, .maintenanceWake, .ownershipLost, .bootstrap, .crashed, .login:
+            inferenceLeases.clear(); engine.replaceActivityObservation(rawSample.activity); effectiveEvent = event
+        case .settings(let settings):
+            if !settings.localInference { inferenceLeases.clear(); engine.replaceActivityObservation(rawSample.activity) }; effectiveEvent = event
+        default: effectiveEvent = event
+        }
+        let effects = engine.handle(effectiveEvent, now: now)
+        if !engine.inferenceEligible { inferenceLeases.clear(); engine.replaceActivityObservation(rawSample.activity) }
         if effects.contains(where: { effect in
             switch effect { case .acquireHold, .releaseHold: return true; default: return false }
         }) { protectionEpoch += 1 }
@@ -152,6 +187,7 @@ public actor ControllerService {
         guard running else { return }
         if !preserveIntent { await send(.stop) }
         await send(.lifecycleStopped)
+        inferenceLeases.clear()
         running = false; generation += 1; timer?.cancel(); timer = nil
         operations.values.forEach { $0.cancel() }; operations.removeAll()
         await cancelPlatformOperations(); protectionEpoch += 1; await protection?.submit(nil, epoch: protectionEpoch); await protection?.flush(); protection = nil

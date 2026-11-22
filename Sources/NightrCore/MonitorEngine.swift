@@ -6,10 +6,13 @@ public enum JoinResult: String, Codable, Sendable { case associated, unavailable
 public struct MachineSample: Codable, Equatable, Sendable {
     public var onBattery: Bool
     public var batteryPercent: Int?
+    public var agentObservation: AgentObservation?
+    public var activity: ActivityObservation?
     public var agentActive: Bool
     public var lidClosed: Bool
     public var setupReady: Bool
-    public init(onBattery: Bool = false, batteryPercent: Int? = nil, agentActive: Bool = false, lidClosed: Bool = false, setupReady: Bool = true) {
+    public init(onBattery: Bool = false, batteryPercent: Int? = nil, agentActive: Bool = false, lidClosed: Bool = false, setupReady: Bool = true, agentObservation: AgentObservation? = nil, activity: ActivityObservation? = nil) {
+        self.agentObservation = agentObservation; self.activity = activity
         self.onBattery = onBattery; self.batteryPercent = batteryPercent; self.agentActive = agentActive; self.lidClosed = lidClosed; self.setupReady = setupReady
     }
 }
@@ -72,7 +75,12 @@ public struct MonitorEngine: Sendable {
     private var maintenance = false
     private var pendingSettings: Settings?
     private var lastConditionCheck: Date?
+    private var inferenceWasActive = false
+    private var agentCheckingBeganAt: Date?
+    private var checkingAllowanceWasActive = false
+    private var lastAgentObservation: AgentObservation?
     public init(settings: Settings = Settings(), state: ControllerState = ControllerState(), sample: MachineSample = MachineSample()) { self.settings = settings; self.state = state; self.sample = sample; self.asleep = state.pause == .asleep || state.pause == .maintenanceWake; self.maintenance = state.pause == .maintenanceWake }
+    public mutating func replaceActivityObservation(_ observation: ActivityObservation?) { sample.activity = observation }
     public var verificationEligible: Bool {
         settings.monitoring && settings.internet && state.desiredEnabled && !asleep && !maintenance && sample.setupReady && !unsafeBattery &&
         ![PauseReason.stopped, .ownership, .crashLimit, .loginOptOut].contains(where: { state.pause == $0 })
@@ -172,11 +180,14 @@ public struct MonitorEngine: Sendable {
         else if !hardPause {
             if state.pause == .battery || state.pause == .setup { state.pause = state.resumePause; state.resumePause = nil; refreshSamples(now: now); state.internet = .stale }
             if state.pause != .inactivity {
-                if changedSettings || (state.nextConditionRetryAt.map({ now >= $0 }) ?? false) || (lastConditionCheck.map({ now.timeIntervalSince($0) >= Double(settings.every) }) ?? true) {
+                if changedSettings || sample.agentObservation != lastAgentObservation || checkingAllowance(now: now) != checkingAllowanceWasActive || inferenceActive(now: now) || inferenceWasActive || (state.nextConditionRetryAt.map({ now >= $0 }) ?? false) || (lastConditionCheck.map({ now.timeIntervalSince($0) >= Double(settings.every) }) ?? true) {
                     evaluateConditions(now: now, effects: &effects); lastConditionCheck = now
                 }
             }
         }
+        lastAgentObservation = sample.agentObservation
+        checkingAllowanceWasActive = checkingAllowance(now: now)
+        inferenceWasActive = inferenceActive(now: now)
         if verificationEligible {
             startVerification(now: now, effects: &effects)
             startHotspot(now: now, effects: &effects)
@@ -192,16 +203,38 @@ public struct MonitorEngine: Sendable {
         if state.pause == .inactivity || state.pause == .connectivity { state.resumePause = state.pause }
     }
     private mutating func refreshSamples(now: Date) {
+        agentCheckingBeganAt = now
         resetConditions(); state.lastAgentActiveAt = now; state.lastInternetAvailableAt = now; state.agentSamples = 0
     }
+    public var inferenceEligible: Bool {
+        settings.localInference && pendingSettings?.localInference != false && !settings.forever && state.desiredEnabled && !asleep && !maintenance && sample.setupReady && !unsafeBattery && !hardPause && state.pause != .inactivity && state.resumePause != .inactivity
+    }
+    private func inferenceActive(now: Date) -> Bool { inferenceEligible && (sample.activity?.hasActiveInference(at: now) ?? false) }
+    private func checkingAllowance(now: Date) -> Bool {
+        guard sample.agentObservation == .checking, let beganAt = agentCheckingBeganAt else { return false }
+        let age = now.timeIntervalSince(beganAt)
+        return age >= 0 && age < 15
+    }
     private mutating func evaluateConditions(now: Date, effects: inout [MonitorEffect]) {
-        if state.pause == .connectivity && !state.lastInternetVerified { release(&effects); return }
+        let inference = inferenceActive(now: now)
+        if state.pause == .connectivity && !state.lastInternetVerified && !inference { release(&effects); return }
         if state.lastAgentActiveAt == nil { state.lastAgentActiveAt = now }
         if state.lastInternetAvailableAt == nil { state.lastInternetAvailableAt = now }
         state.agentSamples = min(Int.max - 1, state.agentSamples) + 1
-        if sample.agentActive { state.lastAgentActiveAt = now }
+        let observedAgentActive = sample.agentObservation.map { $0 == .active } ?? sample.agentActive
+        if observedAgentActive { state.lastAgentActiveAt = now }
         if state.lastInternetVerified { state.lastInternetAvailableAt = now }
-        let agentPass = sample.agentActive || state.agentSamples <= 1 || now.timeIntervalSince(state.lastAgentActiveAt!) <= Double(settings.grace)
+        // Local processing is independent; only real agent/internet observations
+        // update their respective grace timestamps above.
+        if inference {
+            if state.pause == .connectivity { state.pause = nil }
+            if state.pause == nil && !holding { holding = true; effects.append(.acquireHold(settings)) }
+            return
+        }
+        // The first bounded asynchronous probe must be allowed to complete even
+        // with zero user grace. Checking is never an activity/grace observation.
+        let checkingPass = checkingAllowance(now: now)
+        let agentPass = observedAgentActive || checkingPass || state.agentSamples <= 1 || now.timeIntervalSince(state.lastAgentActiveAt!) <= Double(settings.grace)
         let internetPass = state.lastInternetVerified || now.timeIntervalSince(state.lastInternetAvailableAt!) <= Double(settings.grace)
         if settings.conditionsPass(agentActive: agentPass, internetVerified: internetPass) {
             resetConditions()

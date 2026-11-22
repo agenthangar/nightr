@@ -172,3 +172,56 @@ and resumes on AC or sufficient charge, without forcing the Mac to sleep.
 The prior network-return revision passed 33 checks; browser review covered its
 Settings, prominent inactive Nightr tab and simulated download steps. Native
 sleep/wake, permissions and actual network operations remain outside this preview.
+
+## Activity and local-model proposal
+
+`activity.html` is the isolated synthetic proposal for issue #23. Serve it through
+the same loopback server and review `/activity.html`. It changes no app,
+controller or actual CLI. It reads no live configuration or model content and
+makes no requests to live services and performs no storage writes or system actions.
+
+The established 318px popover keeps its moon/name header, large On/Off/Paused
+state, full-width Start/Stop, diagnostic rows and Settings / Stop and Quit footer.
+Two compact model/runtime rows appear below Start/Stop; **All 4…** reveals the
+remaining observations. Generating, loaded idle, loaded with unknown activity,
+inventory only and expired observations stay distinct. Each row opens a plain
+details dialog with current state/runtime and useful reported Memory, Context
+window and Time generating/rate values only when known. Unverified observations
+do not acquire a current loaded state or rate. Escape returns focus to the row.
+Agent Active and verified Internet Connected use a green circle-check; checking,
+unknown and unavailable observations retain explicit text. CPU/GPU is informational.
+
+**Settings…** opens the full existing General, Protection, Connectivity and
+Advanced controls through `index.html?activity-settings=1`, a narrowly gated
+same-origin frame. This reuses the established Settings editor and hotspot
+chooser instead of maintaining a reduced copy. The frame obtains defaults from
+its existing full schema, receives the activity's saved settings/observations and
+theme, and owns one draft. Save applies that complete draft once to activity;
+Cancel/Escape discards it. A hotspot child's Escape closes only that child and
+returns focus to Choose; closing Settings returns focus to its opener. Section
+switches retain the draft, including display/lock, timing, battery, notifications,
+login and hotspot preferences. Native credentials and Wi-Fi actions remain simulated.
+
+Automatic protection evaluates the saved `checks` and legacy `require` policy;
+Until I stop follows `forever`. Unrelated edits preserve imported check policies.
+**Keep awake while a local model is generating** is an independent Automatic
+opt-in for online and offline use. It starts off. Mode switches hide/disable it while retaining the draft value.
+The saved battery-enable option and exact cutoff apply in either awake mode.
+Stop, sleep and unsafe configured battery always win. Other preferences remain
+editable and retained; they do not initiate real system actions. JSON exports
+the same complete saved configuration used by the popover and plain CLI.
+
+The collapsed **Preview controls** exercise offline inference, loaded idle,
+unknown MLX, independent runtimes, unsupported GPU, long escaped model names,
+Stop/Quit, battery, sleep and wake. Metadata renewal is simulated every 5s with a
+15s lease using the manual sample clock. Expired/unknown inference never qualifies.
+Inactivity pause in Automatic mode waits for normal wake or explicit Start;
+fresh metadata cannot resume it. Startup checking has a bounded 15s grace and
+then remains Unknown without evidence. Idle terminals never prove activity.
+Stop and Quit closes the popover; reopening via the moon keeps protection Off.
+
+Activity copy and authored embedded Settings/chooser separators avoid middle
+dots; user-entered SSID characters are preserved. All values are fabricated,
+proposed CLI fields are illustrative, and no real runtime compatibility is
+claimed. Browser checks cannot verify native accessibility, runtime APIs or
+power behavior. Explicit preview approval still precedes production work.
