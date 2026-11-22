@@ -45,7 +45,7 @@ struct SettingsView: View {
                     case .connectivity: connectivity
                     case .advanced: advanced
                     }
-                }.font(.system(size: 15)).padding(.horizontal, 26).padding(.vertical, 16).frame(maxWidth: .infinity, alignment: .leading)
+                }.font(.system(size: 15)).padding(.horizontal, SettingsLayout.contentInset).padding(.vertical, 16).frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(saving)
             Divider()
@@ -58,7 +58,7 @@ struct SettingsView: View {
                 Button { Task { await save() } } label: {
                     Text(error == nil ? "Save" : "Retry Save").foregroundColor(Color(red: 0.15, green: 0.11, blue: 0.04))
                 }.buttonStyle(.borderedProminent).tint(.nightrButtonAmber).keyboardShortcut(.defaultAction).focused($saveFocused).disabled(saving || !loaded || !numbers.invalid.isEmpty)
-            }.padding(.horizontal, 20).padding(.vertical, 14)
+            }.padding(.horizontal, SettingsLayout.contentInset).padding(.vertical, 14)
         }.frame(width: 600, height: 540)
         .background(Color(nsColor: .windowBackgroundColor))
         .tint(.nightrAmber)
@@ -94,7 +94,7 @@ struct SettingsView: View {
         }
     }
     private var protection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Keep Mac awake").fontWeight(.semibold)
             Picker("Keep Mac awake", selection: $draft.forever) {
                 Text("Automatically").tag(false)
@@ -106,20 +106,24 @@ struct SettingsView: View {
                     Toggle("Internet is available", isOn: condition(\.internet))
                     if draft.requirement != .all { hint("Custom CLI policy retained") }
                     else if draft.agent && draft.internet { hint("Both must apply.") }
+                    Toggle("Keep awake while a local model is generating", isOn: $draft.localInference)
+                    hint("Works without internet.")
                     if conditionsEdited && !draft.agent && !draft.internet { Text("Select one, or choose Until I stop.").font(.system(size: 13)).foregroundStyle(.red) }
                 }.padding(.leading, 18)
             }
             Divider()
             Text("When lid closes").fontWeight(.semibold)
             HStack {
-                Text("Display").frame(width: 115, alignment: .leading)
-                Picker("Display", selection: display) { Text("Off").tag(0); Text("On").tag(1); Text("Dim").tag(2) }.labelsHidden().frame(width: 145)
+                Text("Display").frame(width: SettingsLayout.labelWidth, alignment: .leading)
+                Picker("Display", selection: display) { Text("Off").tag(0); Text("On").tag(1); Text("Dim").tag(2) }
+                    .labelsHidden().frame(width: 145, alignment: .leading)
             }
             Toggle("Lock Mac", isOn: $draft.lock)
             Divider()
             Text("On battery").fontWeight(.semibold)
             HStack {
                 Toggle("Allow sleep below", isOn: $draft.batteryProtection).fixedSize()
+                    .frame(width: SettingsLayout.labelWidth, alignment: .leading)
                 NumericInput(key: "batteryBelow", value: $draft.batteryBelow, range: 1...100).frame(width: 52).disabled(!draft.batteryProtection)
                 Text("%")
             }
@@ -130,27 +134,30 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Connection").fontWeight(.semibold)
             HStack {
-                Image(systemName: "wifi")
-                Text(GUIProtectionSummary(status: status).internet)
+                let connected = status?.state.internet == .verified
+                Image(systemName: connected ? "checkmark.circle" : "wifi")
+                    .foregroundStyle(connected ? Color.nightrStatusGreen : Color.secondary)
+                    .accessibilityHidden(true)
+                Text(connected ? "Connected" : GUIProtectionSummary(status: status).internet)
                 Spacer()
                 Text("Observed").font(.system(size: 11)).foregroundStyle(.secondary)
             }.padding(10).background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 5))
             if let outage = status?.state.outage {
-                hint(status?.verificationEligible == true ? "\(outage.consumed) of \(outage.capturedLimit) attempts used · still checking internet" : "Internet checks are paused.")
+                hint(status?.verificationEligible == true ? "\(outage.consumed) of \(outage.capturedLimit) attempts used, still checking internet" : "Internet checks are paused.")
             }
             Divider()
             Text("Hotspot fallback").fontWeight(.semibold)
             Toggle("Use saved hotspot", isOn: $draft.hotspot)
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("Hotspot").frame(width: 115, alignment: .leading)
+                    Text("Hotspot").frame(width: SettingsLayout.labelWidth, alignment: .leading)
                     Text(draft.hotspotSSID.isEmpty ? "None selected" : draft.hotspotSSID).lineLimit(1).help(draft.hotspotSSID)
                     Spacer(); Button("Choose…") { chooser = true }
                 }
-                HStack { Text("Try after").frame(width: 115, alignment: .leading); NumericInput(key: "hotspotAfter", value: $draft.hotspotAfter, range: 0...2147483647).frame(width: 78); Text("seconds") }
-                HStack { Text("Total attempts").frame(width: 115, alignment: .leading); NumericInput(key: "hotspotAttempts", value: $draft.hotspotAttempts, range: 1...10).frame(width: 52) }
+                HStack(alignment: .firstTextBaseline) { Text("Try after").frame(width: SettingsLayout.labelWidth, alignment: .leading); NumericInput(key: "hotspotAfter", value: $draft.hotspotAfter, range: 0...2147483647).frame(width: 78); Text("seconds") }
+                HStack(alignment: .firstTextBaseline) { Text("Total attempts").frame(width: SettingsLayout.labelWidth, alignment: .leading); NumericInput(key: "hotspotAttempts", value: $draft.hotspotAttempts, range: 1...10).frame(width: 52) }
                 hint("Internet checks continue after the attempt limit.")
-            }.padding(.leading, 18).disabled(!draft.hotspot)
+            }.disabled(!draft.hotspot)
             if status?.state.outage?.repairRequired == .missingCredential, !draft.hotspotSSID.isEmpty {
                 Button("Authorize hotspot access…") {
                     do { try KeychainCredentials().repairAccess(ssid: draft.hotspotSSID); error = nil }
@@ -159,7 +166,7 @@ struct SettingsView: View {
             }
             Divider()
             Text("macOS settings").fontWeight(.semibold)
-            hint("Status only · change in System Settings")
+            hint("Status only, change in System Settings")
             HStack {
                 Image(systemName: "minus.square").font(.system(size: 20)).accessibilityLabel("Not checked")
                 Text("Auto-join iPhone hotspot")
@@ -176,17 +183,17 @@ struct SettingsView: View {
             Text("Before allowing sleep").fontWeight(.semibold)
             duration("Wait before retrying", value: $draft.grace, slider: 0...3600, full: 0...86400)
             hint("Keep awake through pauses or lost internet before retrying.")
-            HStack { Text("Extra attempts").frame(width: 160, alignment: .leading); NumericInput(key: "retries", value: $draft.retries, range: 0...10).frame(width: 52) }
+            HStack(alignment: .firstTextBaseline) { Text("Extra attempts").frame(width: SettingsLayout.labelWidth, alignment: .leading); NumericInput(key: "retries", value: $draft.retries, range: 0...10).frame(width: 52) }
             hint(draft.retries == 0 ? "No extra attempts" : "Retry failed conditions before allowing sleep.")
             duration("First retry delay", value: $draft.backoff, slider: 1...300, full: 1...300).disabled(draft.retries == 0)
             hint("Later waits double, up to 5 minutes.")
-            Divider(); hint("These limits apply when the lid is closed.")
+            Divider(); hint("These limits apply with the lid open or closed.")
         }
     }
     private func hint(_ text: String) -> some View { Text(text).font(.system(size: 13)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
     private func duration(_ title: String, value: Binding<Int>, slider: ClosedRange<Double>, full: ClosedRange<Int>) -> some View {
-        HStack {
-            Text(title).frame(width: 160, alignment: .leading)
+        HStack(alignment: .firstTextBaseline) {
+            Text(title).frame(width: SettingsLayout.labelWidth, alignment: .leading)
             Slider(value: Binding(get: { min(slider.upperBound, max(slider.lowerBound, Double(value.wrappedValue))) }, set: { value.wrappedValue = Int($0) }), in: slider, step: 1).frame(width: 135).accessibilityLabel(title)
             NumericInput(key: title, value: value, range: full).frame(width: 67)
             Text("seconds").font(.system(size: 13))

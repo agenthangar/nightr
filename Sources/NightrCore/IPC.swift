@@ -1,12 +1,16 @@
 import Foundation
 
-public enum ControllerCommand: String, Codable, Sendable { case status, start, stop, applySettings, retryNow, tryAgain, skipFallback, prepareUpdate }
+public enum ControllerCommand: String, Codable, Sendable { case status, start, stop, applySettings, retryNow, tryAgain, skipFallback, prepareUpdate, inferenceBegin, inferenceHeartbeat, inferenceEnd }
 public struct ControllerRequest: Codable, Sendable {
     public static let version = 1
     public var version: Int = Self.version
     public var command: ControllerCommand
     public var settings: Settings?
-    public init(command: ControllerCommand, settings: Settings? = nil) { self.command = command; self.settings = settings }
+    public var inference: InferenceMetadata?
+    public var inferenceToken: UUID?
+    public init(command: ControllerCommand, settings: Settings? = nil, inference: InferenceMetadata? = nil, inferenceToken: UUID? = nil) {
+        self.command = command; self.settings = settings; self.inference = inference; self.inferenceToken = inferenceToken
+    }
 }
 public struct ControllerStatus: Codable, Sendable {
     public var state: ControllerState
@@ -24,7 +28,8 @@ public struct ControllerResponse: Codable, Sendable {
     public var version: Int = ControllerRequest.version
     public var status: ControllerStatus?
     public var error: String?
-    public init(status: ControllerStatus? = nil, error: String? = nil) { self.status = status; self.error = error }
+    public var inferenceToken: UUID?
+    public init(status: ControllerStatus? = nil, error: String? = nil, inferenceToken: UUID? = nil) { self.status = status; self.error = error; self.inferenceToken = inferenceToken }
 }
 public enum IPCError: Error, LocalizedError {
     case invalid(String)

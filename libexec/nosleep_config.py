@@ -38,6 +38,7 @@ DEFAULTS = {
     "battery_below": 20,
     "hotspot_attempts": 3,
     "launch_at_login": True,
+    "local_inference": False,
 }
 LABELS = {
     "dim": "Display when lid closes",
@@ -81,7 +82,7 @@ def validate(data):
         raise ValueError("unknown setting: " + ", ".join(sorted(unknown)))
     result = DEFAULTS.copy()
     result.update(data)
-    for key in ("dim", "display_on", "lock", "forever", "agent", "internet", "hotspot", "battery_protection", "launch_at_login"):
+    for key in ("dim", "display_on", "lock", "forever", "agent", "internet", "hotspot", "battery_protection", "launch_at_login", "local_inference"):
         if type(result[key]) is not bool:
             raise ValueError(f"{key} must be true or false")
     requirement = result["requirement"]
@@ -585,6 +586,8 @@ def main(argv=None):
             values, before = read(path)
         if mode == "--values":
             for name in DEFAULTS:
+                if name == "local_inference":  # native-only policy; preserve legacy shell contract
+                    continue
                 print(f"{name}={int(values[name]) if isinstance(values[name], bool) else values[name]}")
             return 0
         if mode == "--show":

@@ -40,7 +40,8 @@ def zsh(tmp_path):
     def call(snippet, _tty=False, **extra):
         env = {"HOME": str(home), "XDG_CACHE_HOME": str(home / ".cache"),
                "PATH": f"{bins}:{os.environ.get('PATH', '')}", "TERM": "dumb",
-               "FAKE_PS": str(tmp_path / "ps.txt"), **extra}
+               "FAKE_PS": str(tmp_path / "ps.txt"), **extra,
+               "NIGHTR_TEST_NO_NATIVE": "1"}
         argv = ["zsh", "-c", f"source {ZSHRC} >/dev/null 2>&1; uname() {{ print Darwin; }}; {snippet}"]
         if not _tty:
             return subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60)

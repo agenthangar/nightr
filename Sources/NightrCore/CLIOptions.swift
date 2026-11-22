@@ -82,6 +82,7 @@ public enum CLIOptions {
             case "-e", "--every": result.every = try number()
             case "-r", "--retries": result.retries = try number()
             case "-b", "--backoff": result.backoff = try number()
+            case "--local-inference": result.localInference = try boolean()
             case "--hotspot": result.hotspot = try boolean()
             case "--inactivity": result.inactivity = try number()
             default: throw SettingsError.invalid("unknown option: \(args[i])")

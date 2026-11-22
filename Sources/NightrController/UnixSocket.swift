@@ -51,13 +51,17 @@ private func makeSocket() -> Int32 {
 #endif
 }
 private struct PeerCredentials { var pid: Int32 = 0; var uid: UInt32 = 0; var gid: UInt32 = 0 }
-private func verifyPeer(_ fd: Int32) throws {
+@discardableResult private func verifyPeer(_ fd: Int32) throws -> ControllerPeer {
 #if canImport(Darwin)
     var uid: uid_t = 0; var gid: gid_t = 0
     guard getpeereid(fd, &uid, &gid) == 0, uid == getuid() else { throw IPCError.invalid("controller peer has a different user identity") }
+    var pid: Int32 = 0; var length = socklen_t(MemoryLayout<Int32>.size)
+    guard getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0 else { throw IPCError.invalid("controller peer process unavailable") }
+    return ControllerPeer(uid: uid, pid: pid)
 #else
     var cred = PeerCredentials(); var length = socklen_t(MemoryLayout<PeerCredentials>.size)
     guard getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &length) == 0, cred.uid == getuid() else { throw IPCError.invalid("controller peer has a different user identity") }
+    return ControllerPeer(uid: cred.uid, pid: cred.pid)
 #endif
 }
 private func configure(_ fd: Int32) {
@@ -142,7 +146,7 @@ final class ControllerSocket: @unchecked Sendable {
     private let stateLock = NSLock()
     private var stopped = false
     private let slots = DispatchSemaphore(value: 4)
-    init(directory: URL, handler: @escaping @Sendable (ControllerRequest) async -> ControllerResponse) throws {
+    init(directory: URL, handler: @escaping @Sendable (ControllerRequest, ControllerPeer) async -> ControllerResponse) throws {
         path = directory.appendingPathComponent("controller.sock").path
         var info = stat()
         if lstat(path, &info) == 0 {
@@ -166,7 +170,7 @@ final class ControllerSocket: @unchecked Sendable {
                 DispatchQueue.global(qos: .utility).async {
                     defer { close(fd); self.slots.signal() }
                     do {
-                        try verifyPeer(fd)
+                        let peer = try verifyPeer(fd)
                         let count = try FrameCodec.payloadLength(receiveExactly(fd, count: 4))
                         let request = try JSONDecoder().decode(ControllerRequest.self, from: receiveExactly(fd, count: count))
                         guard request.version == ControllerRequest.version else {
@@ -174,7 +178,7 @@ final class ControllerSocket: @unchecked Sendable {
                         }
                         let completion = DispatchSemaphore(value: 0)
                         let box = ResponseBox()
-                        Task { box.value = await handler(request); completion.signal() }
+                        Task { box.value = await handler(request, peer); completion.signal() }
                         guard completion.wait(timeout: .now() + 5) == .success, let response = box.value else { return }
                         try sendAll(fd, data: FrameCodec.encode(response))
                     } catch { /* Malformed and unauthenticated peers receive no details. */ }

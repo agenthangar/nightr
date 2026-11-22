@@ -41,9 +41,8 @@ public actor MacControllerPlatform: ControllerPlatform {
     private var internetTask: URLSessionDataTask?
     private var ready = false
     private var lastReadiness = Date.distantPast
-    private var activity = AgentActivity()
-    private var activityAt = Date.distantPast
-    private var activityBusy = false
+    private let agentActivity = AgentActivityMonitor()
+    private let activityTelemetry = ActivityTelemetry()
     private let worker: NetworkWorkerClient
     private var session: URLSession?
     public init() {
@@ -241,22 +240,10 @@ public actor MacControllerPlatform: ControllerPlatform {
             catch { ready = false; lastReadiness = Date(); await releaseProtection() }
             lidWasClosed = lid
         }
-        if Date().timeIntervalSince(activityAt) >= 5 {
-            activityAt = Date()
-            let observation = await Task.detached(priority: .utility) {
-                let text = { (path: String, args: [String]) -> String in
-                    guard let data = try? BoundedProcess().run(executable: URL(fileURLWithPath: path), arguments: args, timeout: 3) else { return "" }
-                    return String(decoding: data, as: UTF8.self)
-                }
-                let processes = text("/bin/ps", ["-Axo", "pid=,ppid=,comm="])
-                let network = AgentActivity.networkSampleArguments(processes: processes).map {
-                    text("/usr/bin/nettop", $0)
-                } ?? ""
-                return (processes, text("/usr/bin/pmset", ["-g", "assertions"]), network)
-            }.value
-            activityBusy = activity.observe(processes: observation.0, assertions: observation.1, network: observation.2, now: Date())
-        }
-        return MachineSample(onBattery: onBattery, batteryPercent: percent, agentActive: activityBusy, lidClosed: lid, setupReady: ready)
+        let agent = await agentActivity.snapshot()
+        let telemetry = await activityTelemetry.snapshot()
+        return MachineSample(onBattery: onBattery, batteryPercent: percent, agentActive: agent == .active,
+                             lidClosed: lid, setupReady: ready, agentObservation: agent, activity: telemetry)
     }
     public func notifyHotspot() async {
         let content = UNMutableNotificationContent()

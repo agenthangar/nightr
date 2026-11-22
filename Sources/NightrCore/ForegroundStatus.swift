@@ -2,22 +2,42 @@ import Foundation
 
 /// Only visible observations form the snapshot. Polling timestamps never cause output.
 public enum ForegroundStatus {
-    public static func lines(_ status: ControllerStatus) -> [String] {
+    public static func lines(_ status: ControllerStatus, includeMetrics: Bool = true) -> [String] {
         let label = status.holding ? "On" : status.state.desiredEnabled ? "Paused" : "Off"
-        var result = ["Nightr \(label)" + (status.state.pause.map { " · \($0.rawValue)" } ?? "")]
-        result.append("Agent: \(status.sample.agentActive ? "active" : "idle") · Internet: \(status.state.internet.rawValue)")
+        var result = ["Nightr \(label)" + (status.state.pause.map { " | \($0.rawValue)" } ?? "")]
+        result.append("Agent: \(status.sample.agentObservation?.rawValue ?? (status.sample.agentActive ? "active" : "idle")) | Internet: \(status.state.internet.rawValue)")
         let battery = status.sample.batteryPercent.map { "\($0)%" } ?? "unknown"
-        result.append("Power: \(status.sample.onBattery ? "battery" : "AC") · Battery: \(battery) · Lid: \(status.sample.lidClosed ? "closed" : "open")")
+        result.append("Power: \(status.sample.onBattery ? "battery" : "AC") | Battery: \(battery) | Lid: \(status.sample.lidClosed ? "closed" : "open")")
+        if let activity = status.sample.activity {
+            if includeMetrics {
+                result.append("CPU: \(activity.cpuPercent.map { "\($0)%" } ?? "unknown") | GPU: \(activity.gpuPercent.map { "\($0)%" } ?? "unknown")")
+            }
+            for runtime in activity.runtimes {
+                let models = runtime.models.map { model in
+                    let fresh = runtime.isFresh(at: Date())
+                    let observedActivity = fresh ? model.observedActivity(at: Date()) : .unknown
+                    var detail = "\(model.displayName) (\(fresh ? model.residency.rawValue : "unknown"), \(observedActivity.rawValue))"
+                    if includeMetrics && fresh {
+                        if observedActivity.isInference, let startedAt = model.startedAt { detail += " elapsed \(max(0, Int(Date().timeIntervalSince(startedAt))))s" }
+                        if let context = model.contextTokens { detail += " context \(context)" }
+                        if let memory = model.memoryBytes { detail += " memory \(memory) bytes" }
+                        if observedActivity.isInference, let speed = model.tokensPerSecond { detail += " \(String(format: "%.1f", speed)) tokens/s" }
+                    }
+                    return detail
+                }.joined(separator: "; ")
+                result.append("\(runtime.runtime.displayName)" + (runtime.version.map { " \($0)" } ?? "") + ": " + (models.isEmpty ? "no models observed" : models))
+            }
+        }
         if let outage = status.state.outage {
-            result.append("Hotspot: \(outage.consumed) of \(outage.capturedLimit) total attempts used · " + (status.verificationEligible ? "still checking internet" : "checks paused"))
+            result.append("Hotspot: \(outage.consumed) of \(outage.capturedLimit) total attempts used | " + (status.verificationEligible ? "still checking internet" : "checks paused"))
         }
         if let message = status.message { result.append(message) }
         return result
     }
-    public static func snapshot(_ response: ControllerResponse) -> String {
+    public static func snapshot(_ response: ControllerResponse, includeMetrics: Bool = true) -> String {
         if let error = response.error { return "Nightr status unavailable: \(error)" }
         guard let status = response.status else { return "Nightr status unavailable: controller returned no status" }
-        return lines(status).joined(separator: "\n")
+        return lines(status, includeMetrics: includeMetrics).joined(separator: "\n")
     }
 }
 
@@ -92,13 +112,13 @@ public struct ForegroundStatusOutput: Sendable {
                 return cyan + "Nightr" + reset + color + String(line.dropFirst("Nightr".count)) + reset
             }
             if line.hasPrefix("Agent:") || line.hasPrefix("Power:") {
-                let sections = line.components(separatedBy: " · ")
+                let sections = line.components(separatedBy: " | ")
                 return sections.map { section in
                     guard let colon = section.firstIndex(of: ":") else { return section }
                     let heading = String(section[...colon]), detail = String(section[section.index(after: colon)...])
                     let color = detail == " verified" || detail == " active" ? green : detail == " checking" || detail == " stale" || detail == " unavailable" ? amber : reset
                     return cyan + heading + reset + color + detail + reset
-                }.joined(separator: " · ")
+                }.joined(separator: " | ")
             }
             if line.hasPrefix("Hotspot:") { return cyan + "Hotspot:" + reset + amber + String(line.dropFirst("Hotspot:".count)) + reset }
             return muted + line + reset

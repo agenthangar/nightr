@@ -46,6 +46,47 @@ status reports setup, ownership, safety and recovery errors instead of treating
 intent alone as successful protection. Nightr never unlocks the Mac or forces
 immediate system sleep.
 
+## Local model activity
+
+The menu and `nightr status` show observed CPU and GPU utilization and local
+models. GPU utilization is unavailable on drivers without a supported reading.
+Read-only status uses cached data and never sends a model request. JSON includes
+available readings and runtime observations under the optional
+`status.sample.activity` field. Model inventory, confirmed residency and active
+inference are separate observations. Agent activity shows Checking until the
+agent detector has a sample. Idle terminals do not count as agent activity.
+
+| Runtime | Read-only local observations |
+| --- | --- |
+| Ollama | Loaded models, reported GPU memory, context and version when supplied. [Ollama API](https://docs.ollama.com/api/ps) |
+| LM Studio | Loaded instances and context from the local REST API. [LM Studio API](https://lmstudio.ai/docs/developer/rest/list) |
+| llama.cpp | Advertised models and residency when explicitly reported by the server. [llama.cpp server API](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) |
+| MLX LM | Advertised models when the local MLX server can be identified. [MLX LM HTTP server](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/SERVER.md#list-models) |
+
+Discovery uses known loopback endpoints. Custom ports, authenticated endpoints
+and unrecognized server processes can be unavailable. The discovery APIs above
+leave current inference activity unknown. CPU, GPU, a loaded model and a
+runtime process never count as proof of inference.
+
+In **Settings → Protection**, **Keep awake while a local model is generating**
+lets fresh integration observations satisfy Automatic protection independently,
+including offline. It starts off. Stop, sleep, the inactivity wake latch,
+battery cutoff and ownership checks still take priority. With authorized
+protection already enabled, a local inference client can run this metadata
+producer as a child while its model is working:
+
+```sh
+nightr inference --runtime ollama --model qwen2.5-coder:14b
+```
+
+Use `--processing` when the integration can establish processing but cannot
+distinguish generation. Stop the producer with SIGTERM when the request ends.
+The producer exits if its original parent exits.
+The same-user controller socket accepts only runtime and model identifiers and
+the activity kind. A live producer renews every five seconds and its observation
+expires within fifteen seconds of the last accepted renewal. The producer does
+not start the controller or send prompts, responses or credentials.
+
 ## Setup, preferences and updates
 
 ```sh

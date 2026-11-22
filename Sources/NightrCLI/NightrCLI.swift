@@ -18,11 +18,12 @@ import Glibc
 
 @main struct NightrCLI {
     static let usage = """
-    Nightr · keep your Mac awake for coding-agent work
+    Nightr | keep your Mac awake for coding-agent work
     usage: nightr [legacy options]
            nightr start [options]
            nightr stop
            nightr status [--json]
+           nightr inference --runtime RUNTIME --model ID [--processing]
            nightr mcp
            nightr setup [--check|--cli-only|--direct-updates]
            nightr config [--show|--edit]
@@ -31,10 +32,13 @@ import Glibc
     Without a command, Nightr runs in the foreground; Ctrl-C stops protection.
     start runs the shared background controller. status never starts it.
     mcp serves local MCP over stdio; connecting or disconnecting never starts/stops protection.
+    inference reports producer metadata until Ctrl-C; renews every 5s, expires within 15s.
+    It requires enabled local inference and a running controller; it never starts protection.
     config changes defaults for the next run; app Settings apply at a loop boundary.
 
     Protection: --checks all|agent|internet|none, --require all|none|N
                 --forever, --agent/--no-agent, --internet/--no-internet
+                --local-inference on|off
     On close:   --display off|on|dim, --lock on|off
     Timing:     --every SECONDS, --grace SECONDS, --retries 0..10,
                 --backoff 1..300, --hotspot on|off
@@ -82,11 +86,13 @@ import Glibc
                     print(String(decoding: try encoder.encode(ControllerResponse(error: message)), as: UTF8.self))
                 } else { print(message) }
             }
+        case "inference":
+            try await inferenceProducer(args)
         case "stop":
             guard args.isEmpty else { throw SettingsError.invalid("usage: nightr stop") }
             if let status = try await StopRecovery.stop() {
                 try printResponse(ControllerResponse(status: status))
-            } else { print("Nightr Off · stopped") }
+            } else { print("Nightr Off | stopped") }
         case "start", "foreground":
             let settings = try CLIOptions.applying(args, to: SettingsStore().load())
 #if os(macOS)
@@ -151,6 +157,43 @@ import Glibc
             default: throw IPCError.invalid("invalid internal package request")
             }
         default: throw SettingsError.invalid("unknown command: \(command). Run `nightr --help`.")
+        }
+    }
+    /// Explicit integration producer. No controller launch, power command, probe,
+    /// prompt content, path, or caller-selected expiry is accepted.
+    static func inferenceProducer(_ arguments: [String]) async throws {
+        var arguments = arguments
+        let processing = arguments.last == "--processing"
+        if processing { arguments.removeLast() }
+        guard arguments.count == 4, arguments[0] == "--runtime", arguments[2] == "--model",
+              let runtime = LocalRuntime(rawValue: arguments[1]) else {
+            throw IPCError.invalid("usage: nightr inference --runtime ollama|lm-studio|llama.cpp|mlx --model ID [--processing]")
+        }
+        let metadata = InferenceMetadata(runtime: runtime, model: arguments[3], activity: processing ? .processing : .generating)
+        try metadata.validate()
+        let producerParent = getppid()
+        guard producerParent > 1 else { throw IPCError.invalid("inference producer requires a live parent process") }
+        let client = ControllerClient()
+        let stop = ForegroundStopSignal()
+        signal(SIGINT, SIG_IGN); signal(SIGTERM, SIG_IGN)
+        let sources = [SIGINT, SIGTERM].map { number -> DispatchSourceSignal in
+            let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
+            source.setEventHandler { stop.request() }; source.resume(); return source
+        }
+        defer { sources.forEach { $0.cancel() }; stop.finish() }
+        let begun = try client.request(.init(command: .inferenceBegin, inference: metadata))
+        if let error = begun.error { throw IPCError.invalid(error) }
+        guard let token = begun.inferenceToken else { throw IPCError.invalid("controller returned no inference token") }
+        defer { _ = try? client.request(.init(command: .inferenceEnd, inferenceToken: token)) }
+        var elapsed = 0
+        while !stop.requested && getppid() == producerParent {
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            elapsed += 1
+            if elapsed == 5 && !stop.requested && getppid() == producerParent {
+                let response = try client.request(.init(command: .inferenceHeartbeat, inferenceToken: token))
+                if let error = response.error { throw IPCError.invalid(error) }
+                elapsed = 0
+            }
         }
     }
     static func printResponse(_ response: ControllerResponse, json: Bool = false) throws {
@@ -262,7 +305,7 @@ import Glibc
             }) {
                 if let error = response.error { throw IPCError.invalid(error) }
                 guard response.status != nil else { throw IPCError.invalid("controller returned no status") }
-                if let output = initialOutput.render(ForegroundStatus.snapshot(response)) {
+                if let output = initialOutput.render(ForegroundStatus.snapshot(response, includeMetrics: initialOutput.interactive)) {
                     FileHandle.standardOutput.write(Data(output.utf8))
                 }
                 if let service {
@@ -276,7 +319,7 @@ import Glibc
                         do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
                         guard !Task.isCancelled else { return }
                         let snapshot: String
-                        do { snapshot = ForegroundStatus.snapshot(try ControllerClient().request(.init(command: .status))) }
+                        do { snapshot = ForegroundStatus.snapshot(try ControllerClient().request(.init(command: .status)), includeMetrics: renderer.interactive) }
                         catch { snapshot = "Nightr status unavailable: \(error.localizedDescription)" }
                         guard !Task.isCancelled else { return }
                         if let text = renderer.render(snapshot) { FileHandle.standardOutput.write(Data(text.utf8)) }
@@ -292,7 +335,7 @@ import Glibc
             await service?.shutdown(preserveIntent: true)
             withExtendedLifetime(events) {}
             if let stopped { try printResponse(.init(status: stopped)) }
-            else { print("Nightr Off · stopped") }
+            else { print("Nightr Off | stopped") }
         } catch {
             refresh?.cancel(); await refresh?.value
             // Cleanup is independent from authoritative Stop and must run even if

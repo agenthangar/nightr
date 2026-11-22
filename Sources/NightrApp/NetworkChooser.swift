@@ -78,7 +78,7 @@ struct NetworkChooser: View {
                 Spacer(); Button("Cancel") { close() }.keyboardShortcut(.cancelAction)
                 Button("Use network") { commit() }.keyboardShortcut(.defaultAction).disabled(!validSSID(name) || (source != .saved && security == .unknown) || (source != .saved && security == .password && credentialState == nil))
             }
-        }.padding(20).frame(width: 480, height: 420)
+        }.padding(SettingsLayout.contentInset).frame(width: 480, height: 420)
         .onAppear {
             selected = configured; manual = configured
             do { saved = try KeychainCredentials(interactionAllowed: false).savedSSIDs(); if !configured.isEmpty && !saved.contains(where: { sameSSID($0, configured) }) { saved.insert(configured, at: 0) } }
@@ -122,7 +122,7 @@ struct NetworkChooser: View {
                 let ssid = record.ssid
                 VStack(alignment: .leading, spacing: 3) {
                     Text(ssid)
-                    Text((sameSSID(ssid, configured) ? "Configured · " : "Saved · ") + (observation?.availability(of: ssid) ?? "Availability unknown")).font(.caption).foregroundStyle(.secondary)
+                    Text((sameSSID(ssid, configured) ? "Configured, " : "Saved, ") + (observation?.availability(of: ssid) ?? "Availability unknown")).font(.caption).foregroundStyle(.secondary)
                 }.tag(ssidIdentity(ssid))
                 }
             }.pickerStyle(.radioGroup).labelsHidden()
@@ -165,7 +165,7 @@ struct NetworkChooser: View {
         case .disabled: return "Location Services are disabled"
         case .off: return "Wi-Fi is off"
         case .unavailable: return "Wi-Fi discovery is unavailable"
-        case .failed: return "Scan failed · availability unknown"
+        case .failed: return "Scan failed, availability unknown"
         case nil: return "Not scanned"
         }
     }

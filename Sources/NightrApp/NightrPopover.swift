@@ -35,11 +35,15 @@ struct NightrPopover: View {
                     .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.primary.opacity(0.08)))
             }.buttonStyle(.plain)
                 .foregroundColor(enabled ? .primary : Color(red: 0.15, green: 0.11, blue: 0.04))
+            LocalModelsView(observation: status?.sample.activity)
+            Divider().padding(.top, 11)
             VStack(spacing: 11) {
-                diagnostic("Internet", state.internet)
-                diagnostic("Agent", status.map { $0.sample.agentActive ? "Active" : "No activity observed" } ?? "Not checked")
-                diagnostic("Battery", status?.sample.batteryPercent.map { "\($0)% · \(status?.sample.onBattery == true ? "Battery" : "Power adapter")" } ?? "Not checked")
+                diagnostic("Internet", status?.state.internet == .verified ? "Connected" : state.internet,
+                           verified: status?.state.internet == .verified, pending: status?.state.internet == .checking)
+                diagnostic("Agent", agentLabel, verified: agentLabel == "Active", pending: agentLabel == "Checking…")
+                diagnostic("Battery", status?.sample.batteryPercent.map { "\($0)%, \(status?.sample.onBattery == true ? "Battery" : "Power adapter")" } ?? "Not checked")
                 diagnostic("Lid", status.map { $0.sample.lidClosed ? "Closed" : "Open" } ?? "Not checked")
+                HardwareMeters(observation: status?.sample.activity)
             }.padding(.top, 18)
             if let outage = status?.state.outage {
                 Divider().padding(.vertical, 14)
@@ -71,11 +75,22 @@ struct NightrPopover: View {
             }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
         }.padding(18).frame(width: 318).background(Color(nsColor: .windowBackgroundColor))
     }
-    private func diagnostic(_ name: String, _ value: String) -> some View {
+    private var agentLabel: String {
+        switch status?.sample.agentObservation {
+        case .checking: return "Checking…"
+        case .active: return "Active"
+        case .idle: return "No activity observed"
+        case nil: return status?.sample.agentActive == true ? "Active" : "Not checked"
+        }
+    }
+    private func diagnostic(_ name: String, _ value: String, verified: Bool = false, pending: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Text(name).foregroundStyle(.secondary)
             Spacer(minLength: 6)
-            Text(value).multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 5) {
+                if verified { Image(systemName: "checkmark.circle").accessibilityHidden(true) }
+                Text(value).multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
+            }.foregroundStyle(verified ? Color.nightrStatusGreen : pending ? Color.nightrAmber : Color.primary)
         }.font(.system(size: 12))
     }
 }

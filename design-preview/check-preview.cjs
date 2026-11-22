@@ -255,7 +255,7 @@ test('Advanced groups explain the timing sequence without an undefined inactivit
  P.reset();P.appSettingsOpen();P.appSettingsTab('advanced');const markup=elements.get('content').innerHTML;
  for(const label of ['Automatic checks','Before allowing sleep'])assert(markup.includes('<legend>'+label+'</legend>'));
  for(const label of ['Check every','Wait before retrying','Extra attempts','First retry delay'])assert(markup.includes(label));
- for(const help of ['How often to check the conditions selected in Protection.','Keep awake through pauses or lost internet before retrying.','Retry failed conditions before allowing sleep.','Later waits double, up to 5 minutes.','These limits apply when the lid is closed.'])assert(markup.includes(help));
+ for(const help of ['How often to check the conditions selected in Protection.','Keep awake through pauses or lost internet before retrying.','Retry failed conditions before allowing sleep.','Later waits double, up to 5 minutes.','These limits apply with the lid open or closed.'])assert(markup.includes(help));
  assert(!markup.includes('<h3>Advanced</h3>'));assert(!markup.includes('timing-value-inactivity'));assert(!markup.includes('Health-check retries are separate from the three hotspot'));
  assert.equal((markup.match(/<span class="timing-unit">seconds<\/span>/g)||[]).length,3);assert(markup.includes('15 minutes'));P.appSettingsCancel();
 });
