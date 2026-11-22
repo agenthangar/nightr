@@ -23,7 +23,7 @@ import NightrController
             let scheme: ColorScheme = dark ? .dark : .light
             let suffix = dark ? "dark" : "light"
             for section in NightrSettingsSection.allCases {
-                let view = SettingsView(section: .constant(section), status: sample("On"), initialDraft: draft, notificationStatus: .authorized)
+                let view = SettingsView(section: .constant(section), status: sample("On"), initialDraft: draft, notificationStatus: .authorized, readHotspotMode: { .automatic })
                     .environment(\.colorScheme, scheme)
                 let window = makeSettingsWindow(hosting: view)
                 window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)

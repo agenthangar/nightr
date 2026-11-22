@@ -22,6 +22,8 @@ struct SettingsView: View {
     @State private var networkSecurity: NetworkSecurity?
     @State private var error: String?
     @State private var conditionsEdited = false
+    let readHotspotMode: () -> HotspotJoinMode
+    @State private var hotspotMode = HotspotJoinMode.unknown
     @State private var guidance = false
     @State private var saving = false
     @State private var pendingLoginRemoval = false
@@ -31,7 +33,9 @@ struct SettingsView: View {
     @StateObject private var numbers = NumericDrafts()
     @FocusState private var saveFocused: Bool
     init(section: Binding<NightrSettingsSection>, status: ControllerStatus?, store: SettingsStore? = nil,
-         initialDraft: NightrCore.Settings? = nil, notificationStatus: UNAuthorizationStatus? = nil, apply: @escaping (NightrCore.Settings) async throws -> Void = { _ in }, close: @escaping () -> Void = {}) {
+         initialDraft: NightrCore.Settings? = nil, notificationStatus: UNAuthorizationStatus? = nil,
+         readHotspotMode: @escaping () -> HotspotJoinMode = HotspotJoinMode.current, apply: @escaping (NightrCore.Settings) async throws -> Void = { _ in }, close: @escaping () -> Void = {}) {
+        self.readHotspotMode = readHotspotMode
         _section = section; self.status = status; self.store = store; self.initialDraft = initialDraft
         self.apply = apply; self.close = close
         _notificationStatus = State(initialValue: notificationStatus)
@@ -80,11 +84,11 @@ struct SettingsView: View {
         .alert("Login setting saved", isPresented: $savedApprovalNotice) {
             Button("OK") { close() }
         } message: { Text(DesktopSetup.approvalGuidance) }
-        .alert("Auto-join iPhone hotspot: Not checked", isPresented: $guidance) {
+        .alert("Auto-join iPhone hotspot: \(hotspotMode.rawValue)", isPresented: $guidance) {
             Button("Open Wi-Fi settings") { DesktopSetup.systemWiFi() }
             Button("Close", role: .cancel) {}
         } message: {
-            Text("Not checked. Auto-join controls how your Mac joins an eligible iPhone hotspot. Review it in System Settings → Wi-Fi → Ask to join hotspots.")
+            Text("Auto-join controls how your Mac joins an eligible iPhone hotspot. Review it in System Settings → Wi-Fi → Ask to join hotspots.")
         }
     }
     private var general: some View {
@@ -239,11 +243,14 @@ struct SettingsView: View {
             Text("macOS settings").fontWeight(.semibold).padding(.bottom, 8)
             hint("Status only, change in System Settings.").padding(.bottom, 9)
             HStack {
-                Image(systemName: "minus.square").font(.system(size: 20)).accessibilityLabel("Not checked")
+                Image(systemName: hotspotMode.symbol).font(.system(size: 20))
+                    .foregroundStyle(hotspotMode == .automatic ? Color.nightrStatusGreen : Color.nightrMuted)
+                    .accessibilityHidden(true)
                 Text("Auto-join iPhone hotspot")
-                Spacer(); Button("Not checked…") { guidance = true }
+                Spacer(); Button("\(hotspotMode.rawValue)…") { guidance = true }
             }.frame(minHeight: 38)
         }
+        .task(id: activeState) { hotspotMode = readHotspotMode() }
     }
     private var advanced: some View {
         VStack(alignment: .leading, spacing: 0) {
