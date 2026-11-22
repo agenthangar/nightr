@@ -114,12 +114,20 @@ private struct NativeSettingsToolbar: NSViewRepresentable {
         let stack = NSStackView(); stack.orientation = .horizontal; stack.spacing = 2
         stack.alignment = .centerY; stack.distribution = .fillEqually
         for (index, section) in NightrSettingsSection.allCases.enumerated() {
-            let button = SectionButton(title: section.rawValue, target: context.coordinator, action: #selector(Coordinator.select(_:)))
+            let button = SectionButton()
+            let cell = SectionButtonCell(textCell: section.rawValue)
+            button.cell = cell
+            button.target = context.coordinator; button.action = #selector(Coordinator.select(_:))
             button.tag = index; button.imagePosition = .imageAbove; button.isBordered = false
             button.font = .systemFont(ofSize: 11); button.imageScaling = .scaleProportionallyDown
-            let symbol: String
-            switch section { case .general: symbol = "gearshape"; case .protection: symbol = "moon"; case .connectivity: symbol = "wifi"; case .advanced: symbol = "slider.horizontal.3" }
-            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 21, weight: .regular))
+            let symbol: String, size: CGFloat
+            switch section {
+            case .general: symbol = "gearshape"; size = 13; cell.centerY = 21
+            case .protection: symbol = "moon"; size = 16; cell.centerY = 19.5
+            case .connectivity: symbol = "wifi"; size = 18; cell.centerY = 18.5
+            case .advanced: symbol = "slider.horizontal.3"; size = 19; cell.centerY = 18.5
+            }
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: size, weight: .regular))
             button.setAccessibilityLabel(section.rawValue + " settings")
             button.setAccessibilityRole(.radioButton)
             button.heightAnchor.constraint(equalToConstant: 56.5).isActive = true
@@ -149,7 +157,23 @@ private struct NativeSettingsToolbar: NSViewRepresentable {
         func choose(_ index: Int) { parent.selection = NightrSettingsSection.allCases[index] }
     }
 }
+private final class SectionButtonCell: NSButtonCell {
+    var centerY: CGFloat = 18.5
+    override func drawInterior(withFrame frame: NSRect, in view: NSView) {
+        // Position the symbol and title independently of the native bezel's
+        // imageAbove metrics, matching the approved compact Settings header.
+        if let image {
+            let rect = NSRect(x: frame.midX - image.size.width / 2,
+                              y: frame.minY + centerY - image.size.height / 2,
+                              width: image.size.width, height: image.size.height)
+            drawImage(image, withFrame: rect, in: view)
+        }
+        _ = drawTitle(attributedTitle, withFrame: NSRect(x: frame.minX, y: frame.minY + 34.5,
+                                                       width: frame.width, height: 15), in: view)
+    }
+}
 private final class SectionButton: NSButton {
+    override var alignmentRectInsets: NSEdgeInsets { .init(top: 0, left: 0, bottom: 0, right: 0) }
     var navigate: ((Int) -> Void)?
     var selectedSection = false { didSet {
         contentTintColor = selectedSection ? NSColor.nightrAccent : .nightrMuted
@@ -167,7 +191,7 @@ private final class SectionButton: NSButton {
     }
     override func draw(_ dirtyRect: NSRect) {
         if selectedSection {
-            let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8)
+            let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 0), xRadius: 8, yRadius: 8)
             NSColor.nightrSelectedFill.setFill(); shape.fill()
             NSColor.nightrSelectedBorder.setStroke(); shape.stroke()
         }

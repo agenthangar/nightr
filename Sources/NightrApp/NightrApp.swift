@@ -26,9 +26,17 @@ import NightrCore
     }
 }
 
-struct MoonSpark: View {
+struct NightrAppIcon: View {
+    private static let icon: NSImage = {
+        if let icon = Bundle.main.image(forResource: "Nightr") { return icon }
+        return NSImage(size: NSSize(width: 32, height: 32), flipped: false) { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            MoonSparkArtwork.drawAppIcon(in: context, rect: rect)
+            return true
+        }
+    }()
     var body: some View {
-        Image(nsImage: MoonSparkArtwork.menuImage).resizable().scaledToFit().accessibilityHidden(true)
+        Image(nsImage: Self.icon).renderingMode(.original).resizable().scaledToFit().accessibilityHidden(true)
     }
 }
 #else

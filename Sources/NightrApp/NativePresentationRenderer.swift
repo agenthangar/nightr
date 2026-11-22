@@ -34,6 +34,7 @@ import NightrController
                 let file = output.appendingPathComponent("settings-\(section.rawValue.lowercased())-\(suffix).png")
                 try capture(frameView, to: file)
                 try checkSettingsWindow(window, frameView: frameView, section: section, capture: file)
+                try checkToolbarIconInsets(frameView, capture: file)
                 if section != .general, let scroll = descendants(frameView).compactMap({ $0 as? NSScrollView }).first,
                    let document = scroll.documentView {
                     let bottom = document.isFlipped ? document.bounds.maxY - scroll.contentView.bounds.height : document.bounds.minY
@@ -178,6 +179,58 @@ import NightrController
         for extra in ["power helper", "set up nightr"] where labels.contains(extra) {
             throw RenderError.generalControl(extra)
         }
+    }
+
+    private static func checkToolbarIconInsets(_ host: NSView, capture: URL) throws {
+        guard let bitmap = NSBitmapImageRep(data: try Data(contentsOf: capture)) else { throw RenderError.bitmap }
+        let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+        let labels = NightrSettingsSection.allCases.map(\.rawValue)
+        let buttons = descendants(host).compactMap { $0 as? NSButton }.filter { labels.contains($0.title) }
+        precondition(buttons.count == 4)
+        for button in buttons {
+            let frame = host.convert(button.bounds, from: button)
+            let top = host.isFlipped ? frame.minY : host.bounds.maxY - frame.maxY
+            precondition(abs(top - 51) <= 1 && abs(frame.height - 56.5) <= 0.5,
+                         "Toolbar tile drifted from approved header: \(button.title), top \(top), height \(frame.height)")
+            precondition(button.target != nil && button.action != nil)
+        }
+        guard let general = buttons.first(where: { $0.title == "General" }) else { throw RenderError.bitmap }
+        let frame = host.convert(general.bounds, from: general)
+        // Measure actual ink in the entire captured header, rather than a local
+        // button bitmap: native bezel alignment can otherwise hide a misplaced
+        // tile. The approved reference has General ink at y65–77.5 and its
+        // label at y88.5–97 in the 600 x 590 Settings window.
+        func ink(in rows: Range<Int>) throws -> NSRect {
+            var occupied = NSRect.null
+            for y in rows {
+                let pixelY = Int(CGFloat(y) * scale)
+                for subrow in 0..<Int(scale) {
+                    guard let background = bitmap.colorAt(x: Int((frame.midX + 38) * scale), y: pixelY + subrow)?.usingColorSpace(.sRGB) else { throw RenderError.bitmap }
+                    for x in Int((frame.midX - 28) * scale)..<Int((frame.midX + 28) * scale) {
+                        guard let color = bitmap.colorAt(x: x, y: pixelY + subrow)?.usingColorSpace(.sRGB) else { throw RenderError.bitmap }
+                        let contrast = max(abs(color.redComponent - background.redComponent),
+                                           abs(color.greenComponent - background.greenComponent),
+                                           abs(color.blueComponent - background.blueComponent))
+                        if contrast > 0.2 {
+                            occupied = occupied.union(NSRect(x: CGFloat(x) / scale, y: CGFloat(pixelY + subrow) / scale,
+                                                             width: 1 / scale, height: 1 / scale))
+                        }
+                    }
+                }
+            }
+            precondition(!occupied.isNull, "Missing General toolbar ink")
+            return occupied
+        }
+        let icon = try ink(in: 58..<83), title = try ink(in: 84..<102)
+        precondition(abs(icon.minY - 65) <= 1.5 && abs(icon.maxY - 78) <= 1.5
+                     && (12...15).contains(icon.width) && (12...15).contains(icon.height),
+                     "General symbol differs from approved header: \(icon)")
+        precondition(abs(title.minY - 88.5) <= 1.5 && abs(title.maxY - 97.5) <= 1.5,
+                     "General label differs from approved header: \(title)")
+        let top = host.isFlipped ? frame.minY : host.bounds.maxY - frame.maxY
+        precondition(abs((icon.minY - top) - 14) <= 1.5,
+                     "General symbol needs the approved 14pt tile inset")
+        print("General header: tile top \(top), icon \(icon), title \(title), ink inset \(icon.minY - top)pt")
     }
 
     private static func checkToolbarKeyboard(_ host: NSView) throws {

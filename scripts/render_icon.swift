@@ -18,13 +18,7 @@ func render(_ pixels: Int) throws -> Data {
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = context
     let cg = context.cgContext
-    cg.scaleBy(x: size / 1024, y: size / 1024)
-    let background = NSBezierPath(roundedRect: NSRect(x: 40, y: 40, width: 944, height: 944), xRadius: 210, yRadius: 210)
-    let gradient = NSGradient(starting: NSColor(calibratedRed: 1, green: 215/255, blue: 137/255, alpha: 1),
-                              ending: NSColor(calibratedRed: 213/255, green: 146/255, blue: 45/255, alpha: 1))!
-    gradient.draw(in: background, angle: -45)
-    MoonSparkArtwork.draw(in: cg, rect: CGRect(x: 190, y: 190, width: 644, height: 644),
-                          color: NSColor(calibratedRed: 51/255, green: 39/255, blue: 20/255, alpha: 1))
+    MoonSparkArtwork.drawAppIcon(in: cg, rect: CGRect(x: 0, y: 0, width: size, height: size))
     cg.flush()
     NSGraphicsContext.restoreGraphicsState()
     guard let png = bitmap.representation(using: .png, properties: [:]) else { fatalError("Cannot encode icon") }

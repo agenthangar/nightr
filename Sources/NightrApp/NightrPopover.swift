@@ -19,7 +19,7 @@ struct NightrPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                MoonSpark().frame(width: 23, height: 23)
+                NightrAppIcon().frame(width: 23, height: 23)
                 Text("Nightr").font(.system(size: 16, weight: .semibold))
                 Spacer()
                 Image(systemName: "power").foregroundStyle(.secondary).accessibilityHidden(true)

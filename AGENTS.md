@@ -32,6 +32,12 @@ from AgentHangar's `t`. The desktop app, CLI and website share this repository.
 - Run relevant unit/contract checks and `python3 -m pytest --cov
   --cov-fail-under=97` for extracted Python sources, shell syntax checks for
   changed shell, and appropriate preview/browser checks. No default macOS UI CI.
+- Watch snapshot runs with `t runners runs watch ID --timeout 60 --json` and
+  PR checks with `t runners runs watch OWNER/REPO#PR@HEAD_SHA --timeout 60 --json`.
+  Pass `--next-step` to record the pending action and resume a timed-out watch.
+  For standalone signing on main, start a local watcher receipt with
+  `t runners runs start --tool codex --repo nightr --timeout 6100 --next-step "Verify signed package" -- python3 scripts/watch_signed_candidate.py RUN_ID MERGE_SHA`.
+  Watch that receipt by ID and inspect its result before installing.
 - Review actual diffs and evidence before PRs. After required preview approval,
   open ready PRs, enable squash auto-merge, and monitor required CI through merge;
   never bypass protections. Do not auto-publish an unapproved design.

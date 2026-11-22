@@ -1,5 +1,6 @@
 """Candidate contracts; installation is mocked, signing proof uses temp ad-hoc code."""
 import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,21 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import check_installer as acceptance
 import build_release as build
+import watch_signed_candidate as candidate_watch
+
+
+@pytest.mark.parametrize("head,conclusion", [("approved", "success"), ("approved", "failure"), ("other", "success")])
+def test_signing_watcher_requires_success_on_exact_merge(monkeypatch, head, conclusion):
+    run = dict(id=42, head_sha=head, head_branch="main", path=".github/workflows/release.yml",
+               event="workflow_dispatch", html_url="https://example.test/run/42")
+    replies = iter([dict(run, status="in_progress"), dict(run, status="completed", conclusion=conclusion)])
+    monkeypatch.setattr(candidate_watch, "urlopen", lambda *args, **kwargs: io.BytesIO(json.dumps(next(replies)).encode()))
+    monkeypatch.setattr(candidate_watch.time, "sleep", lambda seconds: None)
+    if head != "approved":
+        with pytest.raises(SystemExit, match="does not match"):
+            candidate_watch.watch(42, "approved")
+    else:
+        assert candidate_watch.watch(42, "approved") == (0 if conclusion == "success" else 1)
 
 
 def test_cli_alias_survives_payload_copy_inside_the_bundle(tmp_path):
