@@ -11,7 +11,12 @@ import NightrCore
             catch { FileHandle.standardError.write(Data("Offscreen rendering failed: \(error)\n".utf8)); exit(1) }
         }
         #endif
-        if CommandLine.arguments.contains("--setup-helper-only") { DesktopSetup.runHelperCommand() }
+        if let setup = DesktopSetupInvocation(arguments: CommandLine.arguments) {
+            switch setup {
+            case .desktop: DesktopSetup.runDesktopCommand()
+            case .helperOnly: DesktopSetup.runHelperCommand()
+            }
+        }
 
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)

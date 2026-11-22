@@ -48,7 +48,7 @@ final class GUIRoutingTests: XCTestCase {
         XCTAssertEqual(owner.startup, .controller)
         XCTAssertTrue(owner.headless)
         XCTAssertTrue(owner.exitsAfterConnectingToExistingOwner)
-        for flag in ["--settings-only", "--setup", "--hotspot-setup", "--enable-discovery"] {
+        for flag in ["--settings-only", "--setup-desktop", "--setup-helper-only", "--hotspot-setup", "--enable-discovery"] {
             let settings = GUILaunchConfiguration(arguments: [flag])
             XCTAssertEqual(settings.startup, .presentation)
             XCTAssertFalse(settings.headless)
@@ -76,7 +76,8 @@ final class GUIRoutingTests: XCTestCase {
         }
         XCTAssertEqual(labels, ["Off", "On", "Paused", "Recovering", "Error"])
         XCTAssertEqual(symbols.count, 5)
-        XCTAssertEqual(GUIProtectionSummary(status: nil).label, "Error")
+        XCTAssertEqual(GUIProtectionSummary(status: nil).label, "Checking…")
+        XCTAssertEqual(GUIProtectionSummary(status: nil, error: "Connection failed").label, "Error")
     }
     func testCommittedSettingsBytesRemainAnExactConflictBaseline() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("nightr-save-" + UUID().uuidString)
