@@ -9,9 +9,14 @@ import NightrCore
     private var statusItem: NSStatusItem?
     private var statusLabel: AnyCancellable?
     private var settingsWindow: NSWindow?
-    private lazy var popover = makeMenuPopover(hosting: PopoverHost(model: model) { [weak self] in
-        self?.openSettings()
-    })
+    private let popoverDismissal = MenuPopoverDismissal()
+    private lazy var popover: NSPopover = {
+        let popover = makeMenuPopover(hosting: PopoverHost(model: model) { [weak self] in
+            self?.openSettings()
+        })
+        popover.delegate = popoverDismissal
+        return popover
+    }()
 
     init(model: AppModel) {
         self.model = model
