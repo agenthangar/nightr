@@ -12,6 +12,10 @@ from AgentHangar's `t`. The desktop app, CLI and website share this repository.
   publish websites until the user approves the preview. Prototype work is allowed.
 - Preserve `nosleep` invocations, flags, saved config and Keychain service names.
   The new `nightr` executable must run without an installed `t`.
+- Use the supported command-line installer for Nightr installs and upgrades.
+  Never use Computer Use or GUI automation for installation. Leave macOS
+  administrator authentication to the user. Verify the installed signed payload
+  and confirm Nightr reopened via process and controller status.
 - Never run actual sleep/power, Wi-Fi join, Keychain modification, helper install,
   login-service install or DNS mutation as a test. Use mocked system commands,
   sandbox HOME/XDG paths and isolated temporary state. Strip COV_CORE_* from
