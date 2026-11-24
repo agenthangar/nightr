@@ -89,7 +89,7 @@ does not add a login service.
 Distinguish underlying path availability from the last verified internet result.
 Normal wake and network path changes request a bounded check (10-second cap),
 coalescing concurrent events into one active operation. Eligible periodic checks
-start on a 30-second cadence. Verification stays independent of hotspot join
+start at the saved Check interval (30 seconds by default). Verification stays independent of hotspot join
 eligibility and continues after the configured join budget is exhausted without
 an extra join or another prompt. Association alone is not recovery. Only verified internet
 clears the outage ledger and refreshes samples; Nightr then restores its own

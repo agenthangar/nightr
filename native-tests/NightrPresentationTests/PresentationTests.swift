@@ -30,7 +30,12 @@ final class PresentationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         try NativePresentationRenderer.run(output: directory)
         let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-        XCTAssertEqual(files.filter { $0.hasSuffix(".png") }.count, 28)
+        for appearance in ["light", "dark"] {
+            for state in ["generating", "idle"] {
+                XCTAssertTrue(files.contains("model-\(state)-\(appearance).png"))
+            }
+        }
+        XCTAssertEqual(files.filter { $0.hasSuffix(".png") }.count, 32)
     }
     #endif
 }

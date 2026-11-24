@@ -39,8 +39,8 @@ import NightrCore
 
     func reopen() {
         promotePresentation()
-        if let settingsWindow { front(settingsWindow) }
-        else { NSApp.activate(ignoringOtherApps: true) }
+        NSApp.activate(ignoringOtherApps: true)
+        if let button = statusItem?.button, !popover.isShown { showPane(at: button) }
     }
 
     private func promotePresentation(route: GUISettingsRoute? = nil) {
@@ -61,24 +61,27 @@ import NightrCore
         statusLabel = model.$status.combineLatest(model.$error)
             .sink { [weak button] status, error in
                 let state = GUIProtectionSummary(status: status, error: error)
-                button?.image = state.activelyProtecting ? MoonSparkArtwork.activeMenuImage : MoonSparkArtwork.menuImage
+                button?.image = MoonSparkArtwork.menuImage(for: state)
                 button?.setAccessibilityLabel("Nightr, \(state.label)")
             }
     }
 
     @objc private func togglePopover(_ sender: NSStatusBarButton) {
-        if let settingsWindow {
-            front(settingsWindow)
-        } else if popover.isShown {
+        if popover.isShown {
             popover.close()
         } else {
-            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+            showPane(at: sender)
         }
+    }
+
+    private func showPane(at button: NSStatusBarButton) {
+        settingsWindow?.orderOut(nil)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
     @objc private func showSettings(_ sender: Any?) { openSettings() }
 
-    private func openSettings(route: GUISettingsRoute? = nil) {
+    private func openSettings(route: GUISettingsRoute = .general) {
         if popover.isShown { popover.close() }
         promotePresentation(route: route)
         if let settingsWindow {

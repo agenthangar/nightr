@@ -208,7 +208,8 @@ public actor MacControllerPlatform: ControllerPlatform {
         default: return .failed
         }
     }
-    public func sample() async -> MachineSample {
+    public func sample() async -> MachineSample { await sample(checkAgentActivity: true) }
+    public func sample(checkAgentActivity: Bool) async -> MachineSample {
         if Date().timeIntervalSince(lastReadiness) >= 10, lease == nil {
             lastReadiness = Date()
             if let power = currentPower() {
@@ -240,7 +241,7 @@ public actor MacControllerPlatform: ControllerPlatform {
             catch { ready = false; lastReadiness = Date(); await releaseProtection() }
             lidWasClosed = lid
         }
-        let agent = await agentActivity.snapshot()
+        let agent = await agentActivity.snapshot(enabled: checkAgentActivity)
         let telemetry = await activityTelemetry.snapshot()
         return MachineSample(onBattery: onBattery, batteryPercent: percent, agentActive: agent == .active,
                              lidClosed: lid, setupReady: ready, agentObservation: agent, activity: telemetry)

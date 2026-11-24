@@ -149,6 +149,7 @@ public struct MonitorEngine: Sendable {
             if let pendingSettings {
                 changedSettings = settings != pendingSettings
                 let previouslyRequiredInternet = settings.monitoring && settings.internet
+                let changedHotspot = !settings.hotspotSSID.utf8.elementsEqual(pendingSettings.hotspotSSID.utf8)
                 settings = pendingSettings; self.pendingSettings = nil
                 if !settings.monitoring || !settings.internet {
                     cancel(&effects); state.internet = .unknown; state.lastInternetVerified = false
@@ -157,7 +158,10 @@ public struct MonitorEngine: Sendable {
                         if state.pause == .connectivity { state.pause = nil; resetConditions() }
                         if state.resumePause == .connectivity { state.resumePause = nil }
                     }
-                } else if !settings.hotspot { cancelJoin(&effects) }
+                } else if !settings.hotspot || changedHotspot {
+                    cancelJoin(&effects)
+                    if changedHotspot { state.outage?.repairRequired = nil }
+                }
             }
         case .sleep:
             asleep = true; maintenance = false
@@ -306,7 +310,7 @@ public struct MonitorEngine: Sendable {
         release(&effects)
     }
     private mutating func startVerification(now: Date, effects: inout [MonitorEffect]) {
-        guard verificationToken == nil, state.lastVerificationStarted.map({ now.timeIntervalSince($0) >= 30 }) ?? true else { return }
+        guard verificationToken == nil, state.lastVerificationStarted.map({ now.timeIntervalSince($0) >= Double(settings.every) }) ?? true else { return }
         let token = UUID(); verificationToken = token; state.lastVerificationStarted = now; state.internet = .checking
         effects.append(.verifyInternet(token, timeout: 10))
     }

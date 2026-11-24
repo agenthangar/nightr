@@ -11,7 +11,7 @@ struct SettingsHost: View {
     let close: () -> Void
     var body: some View {
         SettingsView(section: $model.presentation.section, status: model.status, store: model.store,
-                     setForce: { model.command($0 ? .beginForce : .endForce) }, apply: { try await model.applySettingsForSave($0) }, close: close)
+                     setForceMode: { model.command($0 ? .beginForce : .endForce) }, apply: { try await model.applySettingsForSave($0) }, close: close)
     }
 }
 
@@ -22,6 +22,7 @@ struct SettingsView: View {
     let initialDraft: NightrCore.Settings?
     let apply: (NightrCore.Settings) async throws -> Void
     let close: () -> Void
+    let setForceMode: (Bool) -> Void
     @State private var draft = NightrCore.Settings()
     @State private var original = NightrCore.Settings()
     @State private var expected: Data?
@@ -33,7 +34,6 @@ struct SettingsView: View {
     @State private var conditionsEdited = false
     let readHotspotMode: () -> HotspotJoinMode
     @State private var hotspotMode = HotspotJoinMode.unknown
-    let setForce: (Bool) -> Void
     @State private var saving = false
     @State private var pendingLoginRemoval = false
     @State private var savedApprovalNotice = false
@@ -43,9 +43,8 @@ struct SettingsView: View {
     @FocusState private var saveFocused: Bool
     init(section: Binding<NightrSettingsSection>, status: ControllerStatus?, store: SettingsStore? = nil,
          initialDraft: NightrCore.Settings? = nil, notificationStatus: UNAuthorizationStatus? = nil,
-         setForce: @escaping (Bool) -> Void = { _ in }, readHotspotMode: @escaping () -> HotspotJoinMode = HotspotJoinMode.current, apply: @escaping (NightrCore.Settings) async throws -> Void = { _ in }, close: @escaping () -> Void = {}) {
-        self.setForce = setForce
-        self.readHotspotMode = readHotspotMode
+         readHotspotMode: @escaping () -> HotspotJoinMode = HotspotJoinMode.current, setForceMode: @escaping (Bool) -> Void = { _ in }, apply: @escaping (NightrCore.Settings) async throws -> Void = { _ in }, close: @escaping () -> Void = {}) {
+        self.readHotspotMode = readHotspotMode; self.setForceMode = setForceMode
         _section = section; self.status = status; self.store = store; self.initialDraft = initialDraft
         self.apply = apply; self.close = close
         _notificationStatus = State(initialValue: notificationStatus)
@@ -59,9 +58,8 @@ struct SettingsView: View {
             ScrollView {
                 CompactSettingsForm(draft: $draft, section: section,
                                     notifications: Binding(get: { notificationsAllowed }, set: { _ in manageNotifications() }),
-                                    notificationsReady: notificationStatus != nil, force: status?.forceMode == true,
-                                    toggleForce: { setForce(status?.forceMode != true) }, condition: condition,
-                                    internet: internet, mode: hotspotMode, outage: outage,
+                                    notificationsReady: notificationStatus != nil, condition: condition,
+                                    internet: internet, mode: hotspotMode, forceMode: status?.forceMode == true, setForceMode: setForceMode, outage: outage,
                                     repair: needsCredential ? repairAccess : nil) {
                     Button(draft.hotspotSSID.isEmpty ? "Choose network…" : draft.hotspotSSID) { chooser = true }
                         .lineLimit(1).accessibilityLabel("Choose hotspot").help(draft.hotspotSSID)
@@ -94,6 +92,7 @@ struct SettingsView: View {
         .alert("Login setting saved", isPresented: $savedApprovalNotice) {
             Button("OK") { close() }
         } message: { Text(DesktopSetup.approvalGuidance) }
+        .onChange(of: section) { if $0 == .connectivity { hotspotMode = readHotspotMode() } }
         .task(id: activeState) {
             hotspotMode = readHotspotMode()
             await refreshNotifications()
@@ -156,7 +155,7 @@ struct SettingsView: View {
         do {
             guard numbers.invalid.isEmpty else { throw SettingsError.invalid("Correct the highlighted integer fields before saving.") }
             try draft.validate()
-            guard draft.forever || !conditionsEdited || draft.agent || draft.internet else { throw SettingsError.invalid("Select one, or choose Until I stop.") }
+            guard draft.forever || !conditionsEdited || draft.agent || draft.internet else { throw SettingsError.invalid("Select agent activity or internet availability.") }
             let enabling = draft.launchAtLogin && !original.launchAtLogin
             let disabling = !draft.launchAtLogin && (original.launchAtLogin || pendingLoginRemoval)
             if enabling {

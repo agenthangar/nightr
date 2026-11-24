@@ -4,6 +4,8 @@ Nightr is a standalone macOS keep-awake utility for coding-agent work, extracted
 from AgentHangar's `t`. The desktop app, CLI and website share this repository.
 
 - Read DESIGN.md and docs/implementation-plan.md before user-facing work.
+  Use the design decision index to locate shared components and regression tests.
+  Update the index and its checks when an approved interaction or visual rule changes.
 - Work in a session worktree on a feature branch; never develop in canonical main.
 - Record a matching GitHub issue before implementation. Current launch issue:
   https://github.com/agenthangar/nightr/issues/1.

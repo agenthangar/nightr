@@ -8,10 +8,12 @@ public protocol ControllerPlatform: Sendable {
     func verifyInternet(timeout: TimeInterval) async -> Bool
     func joinHotspot(ssid: String, timeout: TimeInterval) async -> JoinResult
     func sample() async -> MachineSample
+    func sample(checkAgentActivity: Bool) async -> MachineSample
     func notifyHotspot() async
     func cancelOperations() async
 }
 public extension ControllerPlatform {
+    func sample(checkAgentActivity: Bool) async -> MachineSample { await sample() }
     func notifyHotspot() async {}
     func cancelOperations() async {}
 }

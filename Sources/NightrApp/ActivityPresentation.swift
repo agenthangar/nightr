@@ -70,25 +70,25 @@ struct LocalModelsView: View {
     @State private var selected: ActivityModelRow?
     private var rows: [ActivityModelRow] { ActivityModelRow.rows(observation, now: Date()) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Local models").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Local models").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.nightrInk).accessibilityAddTraits(.isHeader)
                 Spacer()
-                if rows.count > 2 {
+                if rows.isEmpty {
+                    Text("No runtime data").font(.system(size: 13)).foregroundStyle(Color.nightrMuted)
+                } else if rows.count > 2 {
                     Button(expanded ? "Show less" : "All \(rows.count)…") { expanded.toggle() }
-                        .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
+                        .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(Color.nightrMuted)
                         .accessibilityLabel(expanded ? "Show fewer local models" : "Show all \(rows.count) local models")
                 }
             }
-            if rows.isEmpty {
-                Text("No runtime observations").font(.system(size: 12)).foregroundStyle(.secondary).padding(.vertical, 5)
-            } else {
+            if !rows.isEmpty {
                 let visible = expanded ? rows : Array(rows.prefix(2))
                 if expanded {
                     ScrollView { modelRows(visible) }.frame(maxHeight: 260)
                 } else { modelRows(visible) }
             }
-        }.padding(.top, 16)
+        }
         .sheet(item: $selected) { row in
             // Re-evaluate against the latest observation while status updates arrive.
             LocalModelDetails(row: rows.first(where: { $0.id == row.id }) ?? row.unverified)
@@ -100,18 +100,18 @@ struct LocalModelsView: View {
                 Button { selected = row } label: {
                     HStack(alignment: .center, spacing: 7) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(row.name).font(.system(size: 12, weight: .medium)).lineLimit(2).multilineTextAlignment(.leading)
-                            Text(row.runtime).font(.system(size: 11)).foregroundStyle(.secondary)
+                            Text(row.name).font(.system(size: 14, weight: .medium)).foregroundStyle(Color.nightrInk).lineLimit(2).multilineTextAlignment(.leading)
+                            Text(row.runtime).font(.system(size: 12)).foregroundStyle(Color.nightrMuted)
                         }.frame(maxWidth: .infinity, alignment: .leading)
                         VStack(alignment: .trailing, spacing: 2) {
-                            Text(row.state).foregroundStyle(row.inference ? Color.nightrStatusGreen : Color.secondary)
+                            Text(row.state).foregroundStyle(row.inference ? Color.nightrStatusGreen : Color.nightrMuted)
                             if let detail = row.secondaryActivity {
-                                Text(detail).foregroundStyle(.secondary)
+                                Text(detail).foregroundStyle(Color.nightrMuted)
                             }
-                        }.font(.system(size: 10)).multilineTextAlignment(.trailing)
-                            .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 90, alignment: .trailing)
-                        Image(systemName: "chevron.right").font(.system(size: 9)).foregroundStyle(.secondary)
-                    }.padding(.vertical, 7).contentShape(Rectangle())
+                        }.font(.system(size: 12)).multilineTextAlignment(.trailing)
+                            .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 98, alignment: .trailing)
+                        Image(systemName: "chevron.right").font(.system(size: 9)).foregroundStyle(Color.nightrMuted)
+                    }.padding(.vertical, 10).contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel(
                     [row.name, row.runtime, row.state, row.secondaryActivity, "details"].compactMap { $0 }.joined(separator: ", ")
                 )
@@ -126,8 +126,8 @@ struct LocalModelDetails: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(row.name).font(.system(size: 16, weight: .semibold)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            Text([row.runtime, row.version].compactMap { $0 }.joined(separator: " ")).font(.system(size: 12)).foregroundStyle(.secondary)
-            Text(row.state).font(.system(size: 12)).foregroundStyle(row.inference ? Color.nightrStatusGreen : Color.secondary)
+            Text([row.runtime, row.version].compactMap { $0 }.joined(separator: " ")).font(.system(size: 13)).foregroundStyle(Color.nightrMuted)
+            Text(row.state).font(.system(size: 13)).foregroundStyle(row.inference ? Color.nightrStatusGreen : Color.nightrMuted)
             if let bytes = row.memoryBytes, bytes >= 0 { detail(row.memoryLabel, ByteCountFormatter.string(fromByteCount: bytes, countStyle: .memory)) }
             if let context = row.contextTokens, context > 0 { detail("Context window", "\(context.formatted()) tokens") }
             if let elapsed = row.elapsedSeconds { detail(row.state == "Processing" ? "Time processing" : "Time generating", "\(elapsed) seconds") }
@@ -137,9 +137,9 @@ struct LocalModelDetails: View {
     }
     private func detail(_ name: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(name).foregroundStyle(.secondary).frame(width: 130, alignment: .leading)
+            Text(name).foregroundStyle(Color.nightrMuted).frame(width: 130, alignment: .leading)
             Text(value).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-        }.font(.system(size: 12))
+        }.font(.system(size: 13))
     }
 }
 
@@ -147,25 +147,25 @@ struct HardwareMeters: View {
     let observation: ActivityObservation?
     var body: some View {
         HStack(spacing: 14) {
-            meter("CPU", observation?.cpuPercent, tint: .teal)
+            meter("CPU", observation?.cpuPercent, tint: Color(nsColor: .nightrCPU))
             meter("GPU", observation?.gpuPercent, tint: .nightrAmber)
         }.accessibilityElement(children: .combine)
     }
     private func meter(_ label: String, _ percent: Int?, tint: Color) -> some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 7) {
             HStack {
-                Text(label).foregroundStyle(.secondary)
+                Text(label).foregroundStyle(Color.nightrMuted)
                 Spacer(minLength: 4)
                 Text(percent.map { "\(max(0, min(100, $0)))%" } ?? "Unavailable")
-                    .monospacedDigit().foregroundStyle(percent == nil ? Color.secondary : tint)
+                    .monospacedDigit().foregroundStyle(percent == nil ? Color.nightrMuted : tint)
             }
             GeometryReader { geometry in
-                Capsule().fill(Color.secondary.opacity(0.15))
+                Capsule().fill(Color.nightrMuted.opacity(0.15))
                     .overlay(alignment: .leading) {
                         if let percent { Capsule().fill(tint.opacity(0.75)).frame(width: geometry.size.width * Double(max(0, min(100, percent))) / 100) }
                     }
             }.frame(height: 3).accessibilityHidden(true)
-        }.font(.system(size: 11)).help("System utilization is informational and does not establish activity.")
+        }.font(.system(size: 12)).help("System utilization is informational and does not establish activity.")
     }
 }
 #endif

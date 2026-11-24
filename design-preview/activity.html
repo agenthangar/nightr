@@ -30,7 +30,7 @@ body.light {
   --accent: #8c5d19;
   --good: #287442;
   --activity-fill: #28744214;
-  --cpu: #206f7d;
+  --cpu: #086869;
   --detail-wash: #f2a93b1a;
 }
 * { box-sizing: border-box; }
@@ -54,23 +54,23 @@ button.primary { font-weight: 600; }
 .menubar { display: flex; justify-content: flex-end; align-items: center; gap: 16px; height: 31px; padding: 0 16px; background: #1c2027ad; color: #f5f6f8; font-size: 12px; backdrop-filter: blur(16px); }
 .light .menubar { background: #f7f7f7a6; color: #26282a; }
 #menu-icon { display: flex; align-items: center; border: 0; background: #ffffff27; padding: 3px 6px; border-radius: 4px; }
-.popover { --native-ink: #f3f3f5; --native-muted: #aaaeb7; --native-line: #ffffff17; width: 318px; max-width: calc(100% - 30px); margin: 12px 15px 0 auto; padding: 18px; background: #27292eea; color: var(--native-ink); border: 1px solid #ffffff25; border-radius: 12px; box-shadow: 0 16px 50px #0005; backdrop-filter: blur(30px); font: 13px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; }
-.light .popover { --native-ink: #202228; --native-muted: #666b75; --native-line: #00000016; background: #f6f5f2f2; }
+.popover { --native-ink: #f3f3f5; --native-muted: #aaaeb7; --native-line: #ffffff17; width: 318px; max-width: calc(100% - 30px); margin: 12px 15px 0 auto; padding: 22px 18px; background: #27292e; color: var(--native-ink); border: 1px solid #ffffff25; border-radius: 12px; box-shadow: 0 16px 50px #0005; backdrop-filter: blur(30px); font: 13px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; }
+.light .popover { --native-ink: #202228; --native-muted: #51565f; --native-line: #00000016; background: #f6f5f2; }
 [hidden] { display: none !important; }
 .native-brand { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; }
 .native-power { color: var(--native-muted); font-size: 18px; }
-.status-title { font-size: 31px; font-weight: 550; letter-spacing: -1px; margin-top: 21px; }
+.status-title { font-size: 31px; font-weight: 550; letter-spacing: -1px; margin-top: 22px; }
 .state-symbol { font-size: 20px; margin-right: 8px; }
-.desc { font-size: 12px; min-height: 34px; margin: 5px 0 15px; color: var(--native-muted); overflow-wrap: anywhere; }
+.desc { font-size: 12px; margin: 5px 0 14px; color: var(--native-muted); overflow-wrap: anywhere; }
 .desc[data-checking="true"] { color: var(--accent); }
 .native-primary { width: 100%; background: #e9e9eb; color: #202127; border-color: #fff1; font-weight: 600; padding: 9px; border-radius: 7px; }
 .native-primary.start { background: #f2ad48; color: #281c0d; }
-.local-models { margin-top: 16px; padding-bottom: 11px; border-bottom: 1px solid var(--native-line); }
-.models-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 3px; }
+.local-models { margin-top: 20px; padding-block: 20px; border-block: 1px solid var(--native-line); }
+.models-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
 .models-caption { color: var(--native-muted); font-size: 11px; }
 .all-models { font-size: 11px; padding: 0; border: 0; background: none; color: var(--native-muted); }
 .model-list { max-height: 280px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
-.model-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 7px; align-items: center; gap: 7px; width: 100%; border: 0; border-radius: 3px; background: transparent; padding: 7px 0; text-align: left; }
+.model-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 7px; align-items: center; gap: 7px; width: 100%; border: 0; border-radius: 3px; background: transparent; padding: 10px 0; text-align: left; }
 .model-row:hover { background: #80808015; }
 .model-row:focus-visible { outline-offset: -2px; }
 .model-copy { min-width: 0; }
@@ -82,7 +82,7 @@ button.primary { font-weight: 600; }
 .model-state > small { display: block; margin-top: 1px; font-size: inherit; }
 .model-arrow { color: var(--native-muted); font-size: 16px; }
 .no-models { padding: 5px 0; font-size: 12px; color: var(--native-muted); }
-.native-status { display: grid; gap: 11px; margin-top: 17px; }
+.native-status { display: grid; gap: 14px; margin-top: 20px; }
 .native-status .item { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; font-size: 12px; }
 .native-status .item > span:first-child { color: var(--native-muted); }
 .native-status .item > span:last-child { text-align: right; }
@@ -93,7 +93,7 @@ button.primary { font-weight: 600; }
 .hardware-value[data-available="false"] { color: var(--native-muted); }
 .hardware-track { grid-column: 1 / -1; height: 3px; border-radius: 3px; background: var(--native-line); overflow: hidden; }
 .hardware-track::before { content: ''; display: block; width: var(--percent); height: 100%; border-radius: inherit; background: var(--meter-color); }
-.native-separator { border-top: 1px solid var(--native-line); margin: 15px 0; }
+.native-separator { border-top: 1px solid var(--native-line); margin: 20px 0; }
 .native-footer { display: flex; justify-content: space-between; gap: 8px; }
 .native-footer button { font: 11px -apple-system, sans-serif; background: transparent; border: 0; color: var(--native-muted); padding: 3px; }
 .preview-controls { max-width: 560px; margin: auto; border-top: 1px solid var(--line); }
@@ -144,8 +144,18 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 9px; margin-top
 }
 .status-good { display:inline-flex; align-items:center; gap:5px; color:var(--good); }
 .status-pending { color:var(--accent); }
-.settings-frame-dialog { width:600px; height:590px; max-width:calc(100vw - 20px); max-height:calc(100vh - 24px); padding:0; overflow:hidden; background:var(--native); }
+.settings-frame-dialog { width:470px; height:630px; max-width:calc(100vw - 20px); max-height:calc(100vh - 24px); padding:0; overflow:hidden; background:var(--native); }
 #settings-frame { width:100%; height:100%; border:0; display:block; }
+.pane-actions {display:flex; align-items:center; justify-content:space-between; gap:8px}
+.pane-actions button {width:auto; font-weight:600;}
+.models-caption,.desc {font-size:13px}
+.model-name,.native-status .item {font-size:14px}
+.runtime-name,.activity-badge,.model-state small,.native-footer button,.hardware-meter {font-size:12px}
+.pane-status-heading { display:grid; grid-template-columns:23px minmax(0,1fr); align-items:baseline; gap:5px 8px; margin:22px 0 14px; }
+.pane-status-heading .state-symbol { grid-column:1; text-align:center; font-size:21px; margin:0; }
+.pane-status-heading .status-title,.pane-status-heading p { grid-column:2; margin:0; }
+.pane-status-heading p { min-height:2lh; }
+.pane-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; align-items:stretch; }
 </style>
 </head>
 <body>
@@ -176,10 +186,10 @@ const esc=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>
 const glyph='<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15.6 3.4a8 8 0 1 0 5 12.6A8.5 8.5 0 0 1 15.6 3.4Z"/><path d="m19 2 .8 2.4L22 5.2l-2.2.8L19 8.4l-.8-2.4-2.2-.8 2.2-.8Z"/></svg>';
 let fullDefaults=null;
 const runtimeNames=['Ollama','LM Studio','llama.cpp','MLX'];
-function initial(){return {now:0,enabled:true,asleep:false,safe:true,waitWake:false,settings:fullDefaults?{...fullDefaults}:null,internet:true,agent:true,gpu:true,scenario:'mixed',checkingUntil:null,heartbeat:true,selected:[...runtimeNames],lastBeat:0,long:false,showAll:false,open:true,json:false};}
+function initial(){return {now:0,enabled:true,force:false,priorEnabled:true,asleep:false,safe:true,waitWake:false,settings:fullDefaults?{...fullDefaults}:null,internet:true,agent:true,gpu:true,scenario:'mixed',checkingUntil:null,heartbeat:true,selected:[...runtimeNames],lastBeat:0,long:false,showAll:false,open:true,json:false};}
 let S=initial();
 function runtimes(s){const idle=['idle','terminal','checking'].includes(s.scenario),unknown=s.scenario==='mlx';return [
-{name:'Ollama',version:'0.6.2',model:s.long?'sample/<model & "quoted">-'+('very-long-model-name-'.repeat(12)):'qwen2.5-coder:14b',loaded:true,inference:s.scenario==='checking'?'unknown':idle?'idle':'generating',context:32768,memory:'9.6 GB',expiry:'5m after last use',elapsed:idle?null:42,tps:null,source:'Runtime inventory + synthetic integration heartbeat'},
+{name:'Ollama',version:'0.6.2',model:s.long?'sample/<model & "quoted">-'+('very-long-model-name-'.repeat(12)):'qwen2.5-coder:14b',loaded:true,inference:s.scenario==='checking'?'unknown':idle?'idle':'generating',context:32768,memory:'9.6 GB',expiry:'5m after last use',elapsed:idle?null:42,tps:idle?null:24.8,source:'Runtime inventory + synthetic integration heartbeat'},
 {name:'LM Studio',version:'0.3.12',model:'deepseek-r1-distill-7b',loaded:true,inference:s.scenario==='checking'?'unknown':idle?'idle':'generating',context:8192,memory:'4.8 GB',expiry:null,elapsed:idle?null:18,tps:idle?null:35.2,source:'Runtime loaded-model API + synthetic integration heartbeat'},
 {name:'llama.cpp',version:'b4890',model:'gemma-3-12b-Q4_K_M.gguf',loaded:true,inference:'unknown',context:16384,memory:null,expiry:null,elapsed:null,tps:null,source:'Server metadata; inference hook unavailable'},
 {name:'MLX',version:'0.22.0',model:'mlx-community/sample-8b-4bit',loaded:null,inference:'unknown',context:null,memory:null,expiry:null,elapsed:null,tps:null,source:'Discoverable model inventory only; loaded-state hook unavailable'}
@@ -211,6 +221,8 @@ function snapshot(s) {
     reason = 'System asleep';
   } else if (!batterySafe) {
     reason = 'Battery cutoff, plug in or recharge';
+  } else if (s.force) {
+    hold=true;reason='Automatic checks are paused.';
   } else if (s.waitWake && !cfg.forever) {
     reason = 'Inactivity, waiting for wake or Start';
   } else if (cfg.forever) {
@@ -227,11 +239,11 @@ function snapshot(s) {
     reason = 'Checking agent activity…';
   }
   const lowActivity = ['idle', 'terminal', 'checking'].includes(s.scenario);
-  const status = !s.enabled ? 'Off' : hold ? 'On' : 'Paused';
+  const status = !s.enabled ? 'Off' : hold ? (s.force?'Force mode':'On') : 'Paused';
   return {
     synthetic: true, clockSeconds: s.now, status, hold, reason, enabled: s.enabled,
     settings: { ...cfg }, power: {onBattery:!s.safe,batteryPercent:s.safe?100:12,safe:batterySafe}, configuredRule: configuredRule(cfg), localInferenceProtection: cfg.localInference,
-    agent, internet: s.internet ? 'verified' : 'unavailable',
+    agent:s.force?'Checks paused':agent, internet: s.force?'Checks paused':agent==='Checking…'?'Checking…':s.internet ? 'verified' : 'unavailable',
     cpu: { percent: lowActivity ? 12 : 38, informational: true },
     gpu: { percent: s.gpu ? lowActivity ? 3 : 67 : null, status: s.gpu ? 'available' : 'unsupported', informational: true },
     heartbeat: { renewalSeconds: 5, leaseSeconds: 15, ageSeconds, fresh }, runtimes: models
@@ -294,17 +306,18 @@ function render() {
     const v = snapshot(S);
     const ordered = [...v.runtimes].sort((a,b) => (b.inference==='generating')-(a.inference==='generating') || (b.loaded===true)-(a.loaded===true));
     const shown = S.showAll ? ordered : ordered.slice(0,2);
-    $('menu-icon').innerHTML = glyph;
+    $('menu-icon').innerHTML = v.status==='Force mode'?'ϟ':glyph+(v.hold?'✓':'');
+    $('menu-icon').setAttribute('aria-label','Nightr, '+v.status);
     $('menu-icon').setAttribute('aria-expanded',String(S.open));
     $('popover').hidden = !S.open;
     $('popover').innerHTML = `
       <div class="row"><span class="native-brand"><img src="nightr-app-icon.png" width="23" height="23" alt=""> Nightr</span><span class="native-power" title="${S.safe?'Power adapter':'Battery power'}" aria-label="${S.safe?'Power adapter':'Battery power'}">⏻</span></div>
-      <div class="status-title"><span class="state-symbol">${v.status==='On'?'●':v.status==='Off'?'−':'Ⅱ'}</span>${v.status}</div>
-      <p class="desc" data-checking="${v.reason === 'Checking agent activity…'}">${esc(v.reason)}</p>
-      <button id="primary" class="native-primary ${S.enabled?'':'start'}">${S.enabled?'Stop protection':'Start protection'}</button>
+      <div class="pane-status-heading"><span class="state-symbol" aria-hidden="true">${v.status==='Force mode'?'ϟ':v.status==='On'?'✓':v.status==='Off'?'−':'Ⅱ'}</span><div class="status-title">${v.status}</div>
+      <p class="desc" data-checking="${v.reason === 'Checking agent activity…'}">${esc(v.reason)}</p></div>
+      <div class="pane-actions"><button id="primary" class="native-primary ${S.enabled?'':'start'}">${S.enabled?'Stop protection':'Start protection'}</button><button id="force-mode">${S.force?'End force mode':'ϟ Force mode'}</button></div>
       <section class="local-models" aria-label="Local models"><div class="models-heading"><p class="models-caption">Local models</p>${ordered.length>2?`<button id="all-models" class="all-models" aria-expanded="${S.showAll}" aria-controls="model-list">${S.showAll?'Show less':'All '+ordered.length+'…'}</button>`:''}</div><div id="model-list" class="model-list">${shown.map(modelHTML).join('')||'<p class="no-models">No runtime observations</p>'}</div></section>
       <div class="native-status">
-        <div class="item"><span>Internet</span><span>${S.internet?statusCheck('Connected'):'Unavailable'}</span></div>
+        <div class="item"><span>Internet</span><span>${v.internet==='verified'?statusCheck('Connected'):v.internet==='unavailable'?'Unavailable':v.internet}</span></div>
         <div class="item"><span>Agent</span><span>${v.agent==='Active'?statusCheck('Active'):`<span class="${v.agent==='Checking…'?'status-pending':''}">${esc(v.agent)}</span>`}</span></div>
         <div class="item"><span>Battery</span><span>${S.safe?'100%, Power adapter':'12%, Battery'}</span></div>
         <div class="item"><span>Lid</span><span>Open</span></div>
@@ -312,15 +325,17 @@ function render() {
       </div>
       <div class="native-separator"></div><div class="native-footer"><button id="open-settings" aria-label="Nightr Settings" title="${esc(v.configuredRule)}">Settings…</button><button id="stop-quit">Stop and Quit</button></div>`;
     $('all-models')?.addEventListener('click',()=>{S.showAll=!S.showAll;render();$('all-models')?.focus();});
+    $('force-mode').onclick=()=>event(S.force?'end-force':'force');
     $('stop-quit').onclick=()=>event('quit');
 $('primary').onclick=()=>event(S.enabled?'stop':'start');$('open-settings').onclick=openSettings;document.querySelectorAll('[data-model-key]').forEach(el=>el.onclick=()=>openModel(el.dataset.modelKey));$('scenario').value=S.scenario;$('heartbeat').checked=S.heartbeat;$('runtime-controls').innerHTML=runtimeNames.map(name=>`<label><input type="checkbox" data-runtime="${name}" ${S.selected.includes(name)?'checked':''}> ${name}</label>`).join('');document.querySelectorAll('[data-runtime]').forEach(input=>input.onchange=()=>{S.selected=input.checked?[...S.selected,input.dataset.runtime]:S.selected.filter(n=>n!==input.dataset.runtime);render();});$('plain').setAttribute('aria-pressed',String(!S.json));$('json').setAttribute('aria-pressed',String(S.json));$('cli').textContent=S.json?'$ nightr status --json  # proposed sample\n'+JSON.stringify(v,null,2):plainStatus(v);const pane=document.querySelector('.model-list');if(pane)pane.scrollTop=scroll;const restore=runtimeFocus?document.querySelector('[data-runtime="'+runtimeFocus+'"]'):focusId?$(focusId):null;restore?.focus({preventScroll:true});}
 function notice(message){$('notice').textContent=message;}
 function advance(seconds){S.now+=seconds;if(S.heartbeat&&!S.asleep&&S.scenario!=='stale')S.lastBeat=Math.floor(S.now/5)*5;}
-function event(type){switch(type){case 'stop':S.enabled=false;break;case 'quit':S.enabled=false;S.open=false;break;case 'start':S.enabled=true;S.waitWake=false;if(S.scenario==='checking')S.checkingUntil=S.now+15;break;case 'battery':S.safe=false;break;case 'power':S.safe=true;break;case 'sleep':S.asleep=true;break;case 'wake':S.asleep=false;S.waitWake=false;if(S.heartbeat&&S.scenario!=='stale')S.lastBeat=S.now;break;case 'inactive':S.waitWake=true;S.agent=false;break;case 'tick':advance(5);break;case 'expire':advance(16);break;case 'gpu':S.gpu=!S.gpu;break;case 'long':S.long=!S.long;break;case 'reset':S=initial();break;}render();if(type==='quit')$('menu-icon').focus();notice('Sample event: '+type+'.');}
+function event(type){switch(type){case 'force':if(!S.force){S.priorEnabled=S.enabled;S.enabled=true;S.force=true;}break;case 'end-force':if(S.force){S.force=false;S.enabled=S.priorEnabled;}break;case 'stop':S.force=false;S.enabled=false;break;case 'quit':S.force=false;S.enabled=false;S.open=false;break;case 'start':S.enabled=true;S.waitWake=false;if(S.scenario==='checking')S.checkingUntil=S.now+15;break;case 'battery':S.safe=false;break;case 'power':S.safe=true;break;case 'sleep':S.asleep=true;break;case 'wake':S.asleep=false;S.waitWake=false;if(S.heartbeat&&S.scenario!=='stale')S.lastBeat=S.now;break;case 'inactive':S.waitWake=true;S.agent=false;break;case 'tick':advance(5);break;case 'expire':advance(16);break;case 'gpu':S.gpu=!S.gpu;break;case 'long':S.long=!S.long;break;case 'reset':S=initial();break;}render();if(type==='quit')$('menu-icon').focus();notice('Sample event: '+type+'.');}
 function scenario(value){S.scenario=value;S.checkingUntil=value==='checking'?S.now+15:null;S.internet=['mixed','terminal','checking'].includes(value);S.agent=value==='mixed';S.heartbeat=value!=='stale';S.lastBeat=value==='stale'?S.now-16:S.now;render();notice('Synthetic observations applied.');}
-function openSettings(){if(!S.settings)return;const v=snapshot(S);$('settings').showModal();$('settings-frame').contentWindow.ActivitySettingsBridge.open(S.settings,document.body.classList.contains('light')?'light':'dark',{enabled:S.enabled,ac:S.safe,battery:S.safe?100:12,asleep:S.asleep,internet:S.internet,hold:v.hold,waitWake:S.waitWake});}
+function openSettings(){if(!S.settings)return;const v=snapshot(S);$('settings').showModal();$('settings-frame').contentWindow.ActivitySettingsBridge.open(S.settings,document.body.classList.contains('light')?'light':'dark',{enabled:S.enabled,force:S.force,ac:S.safe,battery:S.safe?100:12,asleep:S.asleep,internet:S.internet,hold:v.hold,waitWake:S.waitWake});}
 function closeSettings(){$('settings').close();render();$('open-settings')?.focus();}
 window.ActivityPreviewBridge={
+  setForceMode(enabled){event(enabled?'force':'end-force');return {force:S.force,enabled:S.enabled,hold:snapshot(S).hold};},
   ready(defaults){fullDefaults={...defaults};if(!S.settings)S.settings={...fullDefaults};render();},
   saved(settings){S.settings={...settings,localInference:!!settings.localInference};closeSettings();notice('Saved sample Settings.');},
   cancelled(){closeSettings();notice('Sample Settings draft cancelled.');}
@@ -328,6 +343,11 @@ window.ActivityPreviewBridge={
 $('settings').addEventListener('cancel',e=>{e.preventDefault();$('settings-frame').contentWindow.ActivitySettingsBridge.cancel();});
 $('menu-icon').onclick=()=>{S.open=!S.open;render();if(S.open)$('primary').focus();};
 $('theme').onclick=()=>{const light=document.body.classList.toggle('light');$('theme').textContent=light?'Dark':'Light';$('theme').setAttribute('aria-label','Switch to '+(light?'dark':'light')+' appearance');$('settings-frame').contentWindow.ActivitySettingsBridge?.theme(light?'light':'dark');};$('scenario').onchange=e=>scenario(e.target.value);$('heartbeat').onchange=e=>{S.heartbeat=e.target.checked;notice(S.heartbeat?'Renewal enabled.':'Renewal disabled; metadata expires at 15s.');};document.querySelectorAll('[data-event]').forEach(button=>button.onclick=()=>event(button.dataset.event));$('plain').onclick=()=>{S.json=false;render();};$('json').onclick=()=>{S.json=true;render();};
+document.addEventListener('pointerdown',e=>{
+  if(S.open && !e.target.closest('#popover,#menu-icon,dialog') && !$('settings').open && !$('model-info').open){
+    S.open=false; $('popover').hidden=true; $('menu-icon').setAttribute('aria-expanded','false');
+  }
+});
 $('settings-frame').src='index.html?activity-settings=1';
 window.ActivityPreview={initial,runtimes,snapshot,advance,event,scenario,get state(){return S;},esc};render();
 </script>

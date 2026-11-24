@@ -17,8 +17,9 @@ extension NSColor {
     // regardless of the wallpaper beneath a Settings window or popover.
     static let nightrSurface = adaptive(light: 0xf6f5f2, dark: 0x27292e)
     static let nightrInk = adaptive(light: 0x202228, dark: 0xf3f3f5)
-    static let nightrMuted = adaptive(light: 0x666b75, dark: 0xaaaeb7)
+    static let nightrMuted = adaptive(light: 0x51565f, dark: 0xaaaeb7)
     static let nightrLine = adaptive(light: 0x000000, dark: 0xffffff, lightAlpha: 0.086, darkAlpha: 0.09)
+    static let nightrCPU = adaptive(light: 0x086869, dark: 0x40d8db)
     static let nightrSelectedFill = adaptive(light: 0xe7e4de, dark: 0x808080, darkAlpha: 0.098)
     static let nightrSelectedBorder = adaptive(light: 0xd5d1c8, dark: 0x808080, darkAlpha: 0.145)
     private static func adaptive(light: UInt32, dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> NSColor {
@@ -41,6 +42,31 @@ extension NSColor {
             return NSColor(srgbRed: 149/255, green: 206/255, blue: 166/255, alpha: 1)
         }
         return NSColor(srgbRed: 40/255, green: 116/255, blue: 66/255, alpha: 1)
+    }
+}
+
+/// A reported state has one foreground for both its glyph and its text.
+struct NightrStatusLabel: View {
+    enum Tone { case confirmed, checking, neutral }
+    let text: String
+    let tone: Tone
+    var neutralSymbol: String? = nil
+
+    private var symbol: String? {
+        switch tone {
+        case .confirmed: return "checkmark.circle"
+        case .checking: return "clock"
+        case .neutral: return neutralSymbol
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let symbol { Image(systemName: symbol).accessibilityHidden(true) }
+            Text(text)
+        }
+        .foregroundStyle(tone == .confirmed ? Color.nightrStatusGreen : tone == .checking ? .nightrAmber : .nightrInk)
+        .accessibilityElement(children: .combine)
     }
 }
 
