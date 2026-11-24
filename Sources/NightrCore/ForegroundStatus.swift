@@ -5,7 +5,7 @@ public enum ForegroundStatus {
     public static func lines(_ status: ControllerStatus, includeMetrics: Bool = true) -> [String] {
         let label = status.holding ? "On" : status.state.desiredEnabled ? "Paused" : "Off"
         var result = ["Nightr \(label)" + (status.state.pause.map { " | \($0.rawValue)" } ?? "")]
-        result.append("Agent: \(status.sample.agentObservation?.rawValue ?? (status.sample.agentActive ? "active" : "idle")) | Internet: \(status.state.internet.rawValue)")
+        result.append("Agent: \(status.forceMode == true ? "checks paused" : status.sample.agentObservation?.rawValue ?? (status.sample.agentActive ? "active" : "idle")) | Internet: \(status.state.internet.rawValue)")
         let battery = status.sample.batteryPercent.map { "\($0)%" } ?? "unknown"
         result.append("Power: \(status.sample.onBattery ? "battery" : "AC") | Battery: \(battery) | Lid: \(status.sample.lidClosed ? "closed" : "open")")
         if let activity = status.sample.activity {

@@ -22,8 +22,17 @@ final class CoreTests: XCTestCase {
         _ = engine.handle(.beginForce, now: now)
         XCTAssertTrue(engine.holding)
         XCTAssertFalse(engine.verificationEligible)
+        _ = engine.handle(.pathChanged, now: now)
+        XCTAssertEqual(GUIProtectionSummary(status: ControllerStatus(engine: engine)).internet, "Checks paused")
         XCTAssertFalse(engine.journalState.desiredEnabled)
         _ = engine.handle(.beginForce, now: now)
+        _ = engine.handle(.tick(.init(onBattery: true, batteryPercent: 5)), now: now)
+        XCTAssertFalse(engine.holding)
+        XCTAssertEqual(engine.state.pause, .battery)
+        _ = engine.handle(.tick(.init(onBattery: false, batteryPercent: 5)), now: now)
+        XCTAssertTrue(engine.forceMode)
+        XCTAssertTrue(engine.holding)
+        XCTAssertNil(engine.state.pause)
         _ = engine.handle(.tick(.init(onBattery: true, batteryPercent: 5)), now: now)
         XCTAssertFalse(engine.holding)
         XCTAssertEqual(engine.state.pause, .battery)
@@ -98,6 +107,55 @@ final class CoreTests: XCTestCase {
         _ = engine.handle(.sleep, now: now.addingTimeInterval(5))
         _ = engine.handle(.normalWake, now: now.addingTimeInterval(6)); XCTAssertNotNil(engine.verificationToken)
     }
+    func testLiveCheckIntervalReschedulesInternetWithoutOverlappingProbes() throws {
+        var settings = Settings()
+        settings.every = 60
+        var engine = MonitorEngine(settings: settings)
+        _ = engine.handle(.start, now: now)
+        let first = try XCTUnwrap(engine.verificationToken)
+        _ = engine.handle(.internetResult(first, true), now: now.addingTimeInterval(1))
+        _ = engine.handle(.tick(MachineSample()), now: now.addingTimeInterval(30))
+        XCTAssertNil(engine.verificationToken)
+        settings.every = 5
+        _ = engine.handle(.settings(settings), now: now.addingTimeInterval(31))
+        _ = engine.handle(.tick(MachineSample()), now: now.addingTimeInterval(31))
+        let second = try XCTUnwrap(engine.verificationToken)
+        _ = engine.handle(.tick(MachineSample()), now: now.addingTimeInterval(37))
+        XCTAssertEqual(engine.verificationToken, second)
+        settings.internet = false
+        _ = engine.handle(.settings(settings), now: now.addingTimeInterval(38))
+        _ = engine.handle(.tick(MachineSample()), now: now.addingTimeInterval(38))
+        _ = engine.handle(.internetResult(second, true), now: now.addingTimeInterval(39))
+        XCTAssertNil(engine.verificationToken)
+        XCTAssertEqual(engine.state.internet, .unknown)
+    }
+
+    func testSavingAnotherHotspotRetiresPreviousAttemptAndPreservesBudget() throws {
+        var settings = Settings()
+        settings.hotspot = true
+        settings.hotspotAfter = 0
+        settings.hotspotSSID = "é"
+        var engine = MonitorEngine(settings: settings)
+        _ = engine.handle(.start, now: now)
+        let verify = try XCTUnwrap(engine.verificationToken)
+        _ = engine.handle(.internetResult(verify, false), now: now)
+        let oldJoin = try XCTUnwrap(engine.joinToken)
+        settings.hotspotSSID = "e\u{301}"
+        _ = engine.handle(.settings(settings), now: now)
+        let applied = engine.handle(.tick(MachineSample()), now: now)
+        XCTAssertTrue(applied.contains(.cancelOperations))
+        _ = engine.handle(.hotspotResult(oldJoin, .missingCredential), now: now)
+        XCTAssertNil(engine.state.outage?.repairRequired)
+        let retry = engine.handle(.retryNow, now: now)
+        let target = retry.compactMap { effect -> String? in
+            if case let .joinHotspot(_, ssid, _) = effect { return ssid }
+            return nil
+        }.first
+        XCTAssertEqual(try XCTUnwrap(target).utf8.map { $0 }, Array(settings.hotspotSSID.utf8))
+        XCTAssertEqual(engine.state.outage?.consumed, 2)
+        XCTAssertFalse(retry.contains(.promptHotspot))
+    }
+
     func testCapturedOutageBudgetPersistsAndExhaustionStillVerifies() throws {
         var settings = Settings(); settings.agent = false; settings.hotspot = true; settings.hotspotSSID = " phone "; settings.hotspotAfter = 0; settings.hotspotAttempts = 1
         var engine = MonitorEngine(settings: settings)

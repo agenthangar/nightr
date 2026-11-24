@@ -8,13 +8,17 @@ public struct GUIProtectionSummary {
     public let detail: String
     public let internet: String
     public init(status: ControllerStatus?, error: String? = nil) {
-        switch status?.state.internet {
-        case .verified: internet = "Verified"
-        case .checking: internet = "Checking…"
-        case .unavailable: internet = "Unavailable"
-        case .stale: internet = "Stale observation"
-        case .unknown: internet = "Not checked"
-        case nil: internet = error == nil ? "Checking…" : "Not checked"
+        if status?.forceMode == true {
+            internet = "Checks paused"
+        } else {
+            switch status?.state.internet {
+            case .verified: internet = "Verified"
+            case .checking: internet = "Checking…"
+            case .unavailable: internet = "Unavailable"
+            case .stale: internet = "Stale observation"
+            case .unknown: internet = "Not checked"
+            case nil: internet = error == nil ? "Checking…" : "Not checked"
+            }
         }
         guard let status else {
             if error == nil {
@@ -32,8 +36,9 @@ public struct GUIProtectionSummary {
             label = "Error"; symbol = "exclamationmark.triangle"; detail = "Protection needs attention. Review the details below."
         } else if status.holding {
             activelyProtecting = true
-            label = "On"; symbol = "checkmark.circle.fill"
-            if status.forceMode == true { detail = "Force mode is keeping your Mac awake." }
+            label = status.forceMode == true ? "Force mode" : "On"
+            symbol = status.forceMode == true ? "bolt.circle.fill" : "checkmark.circle.fill"
+            if status.forceMode == true { detail = "Automatic checks are paused." }
             else if status.settings.localInference && !status.settings.forever && status.sample.activity?.hasActiveInference(at: Date()) == true {
                 detail = "Local inference is keeping your Mac awake."
             } else if status.sample.agentObservation == .checking {

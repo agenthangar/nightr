@@ -145,9 +145,19 @@ actor AgentActivityMonitor {
     private var refreshedAt = Date.distantPast
     private var lastStart = Date.distantPast
     private var refreshing = false
+    private var discardPending = false
     private let probe: Probe
     init(probe: @escaping Probe = { AgentActivityMonitor.read() }) { self.probe = probe }
-    func snapshot(now: Date = Date()) -> AgentObservation {
+    func snapshot(enabled: Bool = true, now: Date = Date()) -> AgentObservation {
+        guard enabled else {
+            // Drop pre-override observations and byte counters before monitoring resumes.
+            detector = AgentActivity()
+            refreshedAt = .distantPast
+            lastStart = .distantPast
+            observation = .checking
+            discardPending = refreshing
+            return .checking
+        }
         if !refreshing && now.timeIntervalSince(lastStart) >= 5 {
             refreshing = true; lastStart = now
             let probe = self.probe
@@ -159,8 +169,8 @@ actor AgentActivityMonitor {
         return now.timeIntervalSince(refreshedAt) < 15 ? observation : .checking
     }
     private func complete(_ result: AgentProbe?, now: Date) {
-        defer { refreshing = false }
-        guard let result else { return }
+        defer { refreshing = false; discardPending = false }
+        guard !discardPending, let result else { return }
         observation = detector.observe(processes: result.processes, assertions: result.assertions, network: result.network, now: now) ? .active : .idle
         refreshedAt = now
     }

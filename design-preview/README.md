@@ -16,14 +16,12 @@ Then open `http://127.0.0.1:8765/`. Stop the server with Ctrl-C.
 
 ## Native Settings preview on macOS
 
-Double-click [Open Settings Preview.command](native/Open%20Settings%20Preview.command). Edit
-[native/SettingsPreview.swift](native/SettingsPreview.swift) to reload the view in the
-open window. The selected tab and draft values survive a successful rebuild.
-Closing the window ends the watcher.
+Open [the native pane preview](native/Open%20Settings%20Preview.command). It starts
+in Force mode. Use the **Preview** menu bar item to switch from Settings to the pane. Open Settings again to
+resume the same draft. Edits to the SwiftUI views reload in place. Quit Preview with ⌘Q.
 
-The menu bar item labeled **Preview** mirrors the installed controller’s protection
-state. The Force button and Save act on the preview session. Connectivity reads the
-macOS hotspot preference when permitted and links to Wi-Fi Settings for inspection.
+Protection, network choices, and Save use an in-memory sample session. The
+Wi-Fi Settings link opens the system pane.
 
 ## Walkthrough
 
@@ -46,7 +44,7 @@ macOS hotspot preference when permitted and links to Wi-Fi Settings for inspecti
    waits are 30 seconds then 60 seconds. Retry now consumes the next remaining
    attempt, cannot overlap, and cannot reset the configured attempt budget (default 3). After
    exhaustion only explicit Try again starts another join cycle. Independent
-   lightweight internet checks continue every 30 seconds while eligible. Choose
+   lightweight internet checks continue at the saved Check interval (default 30 seconds) while eligible. Choose
    Network returns, then +10s: verification clears the outage without a fourth
    join or another prompt. Path availability alone is not success.
 5. **Interruptions:** Low battery, Stop, sleep, crash and denied permissions close
@@ -74,7 +72,7 @@ review notes are held only in memory.
 The manual clock exercises bounded hotspot recovery, battery priority, process
 restart and persistent intent. Underlying network reachability is separate from
 last verified internet. Path changes and normal wake coalesce into one bounded
-10-second check; eligible periodic checks start every 30 seconds independently
+10-second check; eligible periodic checks start at the saved Check interval (default 30 seconds) independently
 of the hotspot join budget. Sleep runs no checks, and maintenance wake does not
 rearm. Connectivity-only pause can recover while awake; inactivity release waits
 for normal wake. Nightr restores its own protection; coding agents reconnect
@@ -127,11 +125,10 @@ Save/Cancel, retry after a simulated save failure, exact SSID validation and
 null-prototype metadata maps remain intact. Demo text only; no real credential
 or Wi-Fi operation runs.
 
-The approved macOS section retains only **Auto-join iPhone hotspot**, with
-“Status only · change in System Settings.” Its box reflects Automatic/Ask/Not
-checked/Unavailable, independently of device eligibility. Network-wake settings,
-guidance and fixtures were removed at the user's request before implementation
-approval on 2026-11-14. Normal-wake recovery and its safety guards remain intact.
+Connectivity shows **Internet access** and **Ask to join hotspots** at the top.
+An Automatic preference gets a green circled check and green text. A separate
+Wi-Fi Settings action sits beside the reported value. The browser simulates
+that action. Normal-wake recovery and its safety checks remain available.
 The outer workbench discloses that the preview does not read macOS settings.
 Settings scrolls only its content, leaving header/footer outside that pane.
 
@@ -151,11 +148,9 @@ For direct local review, append `#settings/protection`, `#settings/connectivity`
 or `#settings/advanced` to the file URL or loopback URL. These links only open a
 focused tab; query parameters are ignored and nothing is automatically saved.
 
-The Advanced slider windows are convenient ranges, not limits on stored values:
-interval 1–300 seconds (exact 1–3600), grace 0–3600 seconds (exact 0–86400),
-and first retry delay 1–300 seconds. Retry limit is an integer 0–10. Out-of-slider-range values
-remain exact through browsing and Save. Moving a slider intentionally replaces
-the value. Fractions, empty and invalid inputs show field errors and block Save.
+Advanced pairs exact numeric inputs with a sec/min selector or count stepper.
+The full ranges and associated rendered-state checks are in the
+[design system](../DESIGN.md#decisions-and-regression-checks).
 
 The short macOS guides are informational only. Instant Hotspot uses eligible
 nearby devices with the same Apple Account or Family Sharing, Wi-Fi/Bluetooth and
@@ -167,15 +162,14 @@ read or changed. Full production prerequisites and references remain in DESIGN.m
 plan. Guide dialogs contain short status/purpose/path instructions and return focus
 to their source row.
 
-Latest immutable selected-runner snapshot
+Historical network-wake removal snapshot
 `72ed66f7-552b-4567-8727-85f9d8a2d52b` passed **92 checks** after the removal.
 The harness retains normal sleep/wake, recovery, attempt, credential and theme
 checks and explicitly rejects removed network-wake controls and fixture fields.
 No fresh browser verification is claimed for this bounded removal; the previous
 content-scroll and light/dark palette checks remain applicable.
 
-A newly edited empty Automatic selection blocks Save with “Select one, or choose
-Until I stop.” Imported empty configurations are retained on unrelated Save.
+A newly edited empty Automatic selection blocks Save with “Select agent activity or internet availability.” Imported empty configurations are retained on unrelated Save.
 Cancel discards the full draft and Reset explicitly stages defaults. Disabling
 the battery option keeps the cutoff; it releases the hold on unsafe battery power
 and resumes on AC or sufficient charge, without forcing the Mac to sleep.
@@ -191,9 +185,8 @@ the same loopback server and review `/activity.html`. It changes no app,
 controller or actual CLI. It reads no live configuration or model content and
 makes no requests to live services and performs no storage writes or system actions.
 
-The established 318px popover keeps its moon/name header, large On/Off/Paused
-state, full-width Start/Stop, diagnostic rows and Settings / Stop and Quit footer.
-Two compact model/runtime rows appear below Start/Stop; **All 4…** reveals the
+The 318px popover shows the desktop icon, protection state, Start or Stop
+and a separate Force mode action. Two compact model/runtime rows appear below the actions; **All 4…** reveals the
 remaining observations. Generating, loaded idle, loaded with unknown activity,
 inventory only and expired observations stay distinct. Each row opens a plain
 details dialog with current state/runtime and useful reported Memory, Context
@@ -214,9 +207,9 @@ switches retain the draft, including display/lock, timing, battery, notification
 login and hotspot preferences. Native credentials and Wi-Fi actions remain simulated.
 
 Automatic protection evaluates the saved `checks` and legacy `require` policy;
-Until I stop follows `forever`. Unrelated edits preserve imported check policies.
-**Keep awake while a local model is generating** is an independent Automatic
-opt-in for online and offline use. It starts off. Mode switches hide/disable it while retaining the draft value.
+Existing until-stopped configurations retain `forever` until the user chooses automatic rules. Unrelated edits preserve imported check policies.
+**When a local model is generating** is an independent Automatic
+opt-in for online and offline use. It starts off. Existing until-stopped configurations retain its value.
 The saved battery-enable option and exact cutoff apply in either awake mode.
 Stop, sleep and unsafe configured battery always win. Other preferences remain
 editable and retained; they do not initiate real system actions. JSON exports

@@ -107,6 +107,12 @@ test('Failed probes keep internet unverified and retry on a 30s eligible cadence
  const s=fresh();act(s,'lost');act(s,'advance',10);assert.equal(s.internet,false);assert.equal(s.probe.failed,1);assert.equal(s.probe.nextAt,30);
  act(s,'advance',19);assert.equal(s.probe.active,false);act(s,'advance',1);assert.equal(s.probe.active,true);assert.equal(s.probe.endsAt,40);act(s,'advance',10);assert.equal(s.probe.failed,2);
 });
+test('Saving the check interval reschedules internet verification from the previous start', () => {
+ const s=fresh();act(s,'save-app',{...s.settings,every:75});act(s,'advance',30);
+ assert.equal(s.probe.started,0);act(s,'advance',45);assert.equal(s.probe.started,1);
+ act(s,'save-app',{...s.settings,every:12});act(s,'advance',10);assert.equal(s.probe.nextAt,87);
+ act(s,'advance',2);assert.equal(s.probe.started,2);
+});
 test('Repeated sleep / wake never probes asleep and checks fresh after each normal wake', () => {
  const s=fresh();act(s,'notification');for(let i=0;i<3;i++){act(s,'sleep');const before=s.probe.started;act(s,'restore');act(s,'maintenance');act(s,'advance',600);assert.equal(s.probe.started,before);assert.equal(s.probe.active,false);assert.equal(s.hold,false);act(s,'wake');assert.equal(s.probe.active,true);assert.equal(s.internetFresh,false);act(s,'advance',10);assert.equal(s.internet,true);assert.equal(s.internetFresh,true);assert.equal(M.status(s),'On');}
 });
@@ -172,25 +178,40 @@ test('Settings tabs preserve all staged values, Save applies live and Cancel res
 });
 test('Locked moon icon, full grouped settings, prominent Nightr tab and download contract render', () => {
  P.reset();P.setView('icons');const markup=elements.get('content').innerHTML;assert(markup.includes('Moon + spark is locked'));assert(!markup.includes('data-icon='));assert(!html.includes("eye:{"));assert(!html.includes("line:{"));assert(!html.includes('Choose an icon'));
- const seen=new Set();P.setView('app');P.appSettingsOpen();for(const tab of ['general','protection','connectivity','advanced']){P.appSettingsTab(tab);const settings=elements.get('content').innerHTML;for(const match of settings.matchAll(/data-setting="app:([^"]+)"/g))seen.add(match[1]);}assert.equal(seen.size,16);assert.equal(seen.has('require'),false);assert.equal(seen.has('inactivity'),false);assert.equal(typeof ui().settingsDraft.require,'string');P.appSettingsCancel();
+ const seen=new Set();P.setView('app');P.appSettingsOpen();for(const tab of ['general','protection','connectivity','advanced']){P.appSettingsTab(tab);const settings=elements.get('content').innerHTML;for(const match of settings.matchAll(/data-setting="app:([^"]+)"/g))seen.add(match[1]);}assert.equal(seen.size,15);assert(!seen.has('forever'));assert.equal(seen.has('require'),false);assert.equal(seen.has('inactivity'),false);assert.equal(typeof ui().settingsDraft.require,'string');P.appSettingsCancel();
  P.setView('website');assert(elements.get('content').innerHTML.includes('Download for macOS'));assert(!html.includes('Apple command-line tools for local builds'));assert(!html.includes('Build for macOS'));assert(!html.includes('./scripts/build-app.sh'));assert(html.includes('No Xcode or separate Python installation'));assert(html.includes('Simulate DMG download'));assert(html.includes('Simulate drag to Applications'));assert(html.includes('Simulate authorized setup'));
  P.setView('hangar');assert(elements.get('content').innerHTML.includes('new-badge'));assert(elements.get('content').innerHTML.includes('data-product="nightr"'));
 });
 test('Protection groups preserve inactive values and never disable battery policy', () => {
  P.reset();P.appSettingsOpen();P.appSettingsTab('protection');let markup=elements.get('content').innerHTML;
- for(const heading of ['Keep Mac awake','When lid closes','On battery'])assert(markup.includes('<legend>'+heading+'</legend>'));
- assert(markup.includes('Automatically'));assert(markup.includes('Until I stop'));assert(!markup.includes('<h3>Protection</h3>'));assert(!markup.includes('Passing checks required'));assert(markup.includes('Both must apply.'));
+ for(const heading of ['When lid closes','On battery'])assert(markup.includes('<legend>'+heading+'</legend>'));
+ assert(markup.includes('Keep Mac awake'));assert(markup.includes('data-force-control'));assert(!markup.includes('id="awake-mode"'));assert(!markup.includes('Until I stop'));assert(!markup.includes('<h3>Protection</h3>'));assert(!markup.includes('Passing checks required'));assert(!markup.includes('Both must apply.'));
  P.appSettingsEdit('require','2');P.appSettingsEdit('forever',true);assert.equal(P.settingDisabled('checks'),true);assert.equal(P.settingDisabled('require'),true);assert.equal(P.settingDisabled('batteryProtection'),false);assert.equal(ui().settingsDraft.require,'2');assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.require,'2');assert.equal(get().settings.forever,true);
  P.appSettingsOpen();P.appSettingsEdit('batteryProtection',false);assert.equal(P.settingDisabled('batteryCutoff'),true);assert.equal(ui().settingsDraft.batteryCutoff,20);P.appSettingsEdit('batteryProtection',true);assert.equal(P.settingDisabled('batteryCutoff'),false);P.appSettingsCancel();
 });
-test('Advanced exact-input and slider events sync without rendering or focus loss', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('advanced');const exact=document.getElementById('timing-value-every'),range=document.getElementById('timing-range-every');exact.dataset={setting:'app:every',timingExact:'every'};exact.type='number';range.dataset={timingRange:'every'};range.type='range';
- const previousQuery=document.querySelectorAll;document.querySelectorAll=selector=>selector==='[data-timing-exact]'?[exact]:selector==='[data-timing-range]'?[range]:selector==='[data-setting]'?[exact]:[];P.render();const before=elements.get('content').innerHTML;
- exact.focus();exact.value='1200';exact.oninput();assert.equal(ui().settingsDraft.every,1200);assert.equal(range.value,'300');assert(elements.get('timing-range-note-every').textContent.includes('Outside slider range'));assert.equal(document.activeElement,exact);assert.equal(elements.get('content').innerHTML,before);
- range.focus();range.value='111';range.oninput();assert.equal(ui().settingsDraft.every,111);assert.equal(exact.value,'111');assert.equal(elements.get('timing-range-note-every').textContent,'');assert.equal(document.activeElement,range);assert.equal(elements.get('content').innerHTML,before);document.querySelectorAll=previousQuery;P.appSettingsCancel();
+test('Protection identifies the live force override separately from the editable usual mode', () => {
+ P.reset();P.appSettingsOpen();P.appSettingsTab('protection');
+ const before=JSON.stringify(ui().settingsDraft);
+ for(const [action,forced] of [['force',true],['end-force',false]]) {
+   P.act(action);
+   const markup=elements.get('content').innerHTML;
+   assert(markup.includes('data-force-control'));
+   assert.equal(markup.includes('Automatic checks are paused.'),forced);
+   assert(!markup.includes('Usual mode'));assert(!markup.includes('id="awake-mode"'));
+   assert.equal(JSON.stringify(ui().settingsDraft),before);
+ }
+ P.appSettingsCancel();
+});
+test('Advanced edits preserve focus and convert minutes to seconds', () => {
+ P.reset();P.appSettingsOpen();P.appSettingsTab('advanced');
+ const input=document.getElementById('timing-value-grace');input.dataset={timingExact:'grace',scale:'60'};
+ const prev=document.querySelectorAll;document.querySelectorAll=q=>q==='[data-timing-exact]'?[input]:[];
+ P.render();const before=elements.get('content').innerHTML;input.focus();input.value='12';input.oninput();
+ assert.equal(ui().settingsDraft.grace,720);assert.equal(document.activeElement,input);assert.equal(elements.get('content').innerHTML,before);
+ document.querySelectorAll=prev;P.appSettingsCancel();
 });
 test('Advanced values outside convenient windows survive browsing and save without clamping', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('advanced');P.timingInput('every','3600');P.timingInput('grace','86400');P.appSettingsTab('general');P.appSettingsTab('advanced');const markup=elements.get('content').innerHTML;assert(markup.includes('value="3600"'));assert(markup.includes('value="86400"'));assert.equal((markup.match(/Outside slider range · exact value retained/g)||[]).length,2);
+ P.reset();P.appSettingsOpen();P.appSettingsTab('advanced');P.timingInput('every','3600');P.timingInput('grace','86400');P.appSettingsTab('general');P.appSettingsTab('advanced');const markup=elements.get('content').innerHTML;assert(markup.includes('value="60"'));assert(markup.includes('value="1440"'));assert(!markup.includes('type="range"'));
  assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.every,3600);assert.equal(get().settings.grace,86400);
  P.runCommand('nightr config');assert.equal(ui().cliDraft.every,3600);assert.equal(ui().cliDraft.grace,86400);P.railAction('nightr-cancel');
 });
@@ -199,48 +220,56 @@ test('Numeric settings reject fractions, empty and invalid values with field err
  P.reset();P.appSettingsOpen();P.timingInput('grace','0');P.timingInput('retries','0');assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.grace,0);assert.equal(get().settings.retries,0);
 });
 test('Connectivity shows sample facts and distinct safe macOS guidance', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');const markup=elements.get('content').innerHTML;for(const title of ['<legend>Connection</legend>','<legend>Hotspot fallback</legend>','<legend>macOS settings</legend>','Auto-join iPhone hotspot'])assert(markup.includes(title));assert.equal((markup.match(/class="macos-guidance-row"/g)||[]).length,1);assert(markup.includes('viewBox="0 0 24 24"'));assert(markup.includes('aria-label="Advanced settings"'));assert(markup.includes('M3 6h4m4 0h10'));assert(markup.includes('aria-labelledby="settings-tab-connectivity"'));assert(markup.includes('data-connectivity-guide="auto"'));assert(markup.includes('3 total attempts. Internet checks keep running.'));assert(!markup.includes('connection-facts'));assert(!markup.includes('<h3>Connectivity</h3>'));assert(markup.includes('aria-label="Auto-join iPhone hotspot: Not checked. Open setup guidance."'));assert(html.includes("wifi:['Connect your hotspot'"));assert(!html.includes('This is an optional desktop notification simulation.'));
- P.appSettingsEdit('fallback',false);assert.equal(P.settingDisabled('ssid'),true);assert.equal(P.settingDisabled('outageDelay'),true);assert.equal(ui().settingsDraft.ssid,'Sample iPhone');
- const before=JSON.stringify(get()),trigger=element('instant-guide');trigger.focus();P.connectivityGuidance('instant');let dialog=elements.get('modal-root').innerHTML;assert(dialog.includes('Use your nearby iPhone when Wi-Fi is unavailable.'));assert(dialog.includes('Current: Not checked'));assert(dialog.includes('Ask to join hotspots'));assert.equal((dialog.match(/<p[ >]/g)||[]).length,3);elements.get('modal-root').children=[element()];eventHandlers.keydown({key:'Escape',preventDefault(){},target:element()});elements.get('modal-root').children=[];assert.equal(ui().settings,true);assert.equal(document.activeElement,trigger);
+ P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');const markup=elements.get('content').innerHTML;for(const title of ['<legend>Internet &amp; Wi-Fi</legend>','<legend>Backup hotspot</legend>','Ask to join hotspots'])assert(markup.includes(title));assert.equal((markup.match(/data-hotspot-mode/g)||[]).length,1);assert(markup.includes('viewBox="0 0 24 24"'));assert(markup.includes('aria-label="Advanced settings"'));assert(markup.includes('M3 6h4m4 0h10'));assert(markup.includes('aria-labelledby="settings-tab-connectivity"'));assert(markup.includes('data-connectivity-guide="auto"'));assert(markup.includes('Attempts'));assert(!markup.includes('connection-facts'));assert(!markup.includes('<h3>Connectivity</h3>'));assert(markup.includes('aria-label="Open Wi-Fi Settings"'));assert(html.includes("wifi:['Connect your hotspot'"));assert(!html.includes('This is an optional desktop notification simulation.'));
+ P.appSettingsEdit('fallback',false);assert.equal(P.settingDisabled('ssid'),false);assert.equal(P.settingDisabled('outageDelay'),true);assert.equal(ui().settingsDraft.ssid,'Sample iPhone');
+ const before=JSON.stringify(get()),trigger=element('instant-guide');trigger.focus();P.connectivityGuidance('instant');let dialog=elements.get('modal-root').innerHTML;assert(dialog.includes('Use your nearby iPhone when Wi-Fi is unavailable.'));assert(dialog.includes('Current: Unknown'));assert(dialog.includes('Ask to join hotspots'));assert.equal((dialog.match(/<p[ >]/g)||[]).length,3);elements.get('modal-root').children=[element()];eventHandlers.keydown({key:'Escape',preventDefault(){},target:element()});elements.get('modal-root').children=[];assert.equal(ui().settings,true);assert.equal(document.activeElement,trigger);
  assert.equal(JSON.stringify(get()),before);P.appSettingsCancel();
 });
 test('Settings hash links select a focused section without editing or saving values', () => {
  for(const tab of ['protection','connectivity','advanced']){P.reset();const before=JSON.stringify(get());assert.equal(P.settingsHash('#settings/'+tab),true);assert.equal(ui().settings,true);assert.equal(ui().settingsTab,tab);assert.equal(JSON.stringify(get()),before);assert.equal(P.settingsHash('#settings/'+tab+'?every=1'),false);assert.equal(ui().settingsDraft.every,30);P.appSettingsCancel();}
  for(const tab of ['protection','connectivity','advanced']){const startup=vm.createContext({document,window:{location:{hash:'#settings/'+tab,search:'?every=1'},scrollTo(){},addEventListener(){}},setTimeout(){return 1},clearTimeout(){},console});scripts.forEach(source=>vm.runInContext(source,startup));const initialized=startup.NightrPreview.getUI();assert.equal(initialized.settings,true);assert.equal(initialized.settingsTab,tab);assert.equal(initialized.settingsDraft.every,30);assert.equal(startup.NightrPreview.getState().settings.every,30);}
+ P.appSettingsOpen();P.appSettingsTab('advanced');P.timingInput('every','47');
+ P.appSettingsOpen();assert.equal(ui().settingsTab,'general');assert.equal(ui().settingsDraft.every,47);
+ P.settingsHash('#settings/connectivity');assert.equal(ui().settingsTab,'connectivity');assert.equal(ui().settingsDraft.every,47);
+ P.appSettingsCancel();P.appSettingsOpen();assert.equal(ui().settingsTab,'general');P.appSettingsCancel();
+
 });
 test('App checkboxes map every selection to all-selected policy on intentional edits', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('protection');P.appCheckToggle('agent',false);assert.equal(ui().settingsDraft.checks,'internet');assert.equal(ui().settingsDraft.require,'all');P.appCheckToggle('internet',false);assert.equal(ui().settingsDraft.checks,'');assert.equal(ui().settingsErrors.checks,'Select one, or choose Until I stop.');assert.equal(P.appSettingsSave(),false);P.appCheckToggle('agent',true);assert.equal(ui().settingsDraft.checks,'agent');P.appCheckToggle('internet',true);assert.equal(ui().settingsDraft.checks,'agent,internet');assert.equal(ui().settingsDraft.require,'all');assert.equal(P.appSettingsSave(),true);
+ P.reset();P.appSettingsOpen();P.appSettingsTab('protection');P.appCheckToggle('agent',false);assert.equal(ui().settingsDraft.checks,'internet');assert.equal(ui().settingsDraft.require,'all');P.appCheckToggle('internet',false);assert.equal(ui().settingsDraft.checks,'');assert.equal(ui().settingsErrors.checks,'Select agent activity or internet availability.');assert.equal(P.appSettingsSave(),false);P.appCheckToggle('agent',true);assert.equal(ui().settingsDraft.checks,'agent');P.appCheckToggle('internet',true);assert.equal(ui().settingsDraft.checks,'agent,internet');assert.equal(ui().settingsDraft.require,'all');assert.equal(P.appSettingsSave(),true);
 });
 test('Imported CLI policy survives unrelated Save and changes only after a checkbox edit', () => {
- for(const requirement of ['1','2','none']){P.reset();P.act('save-cli',{...get().settings,require:requirement});P.appSettingsOpen();P.appSettingsTab('protection');assert(elements.get('content').innerHTML.includes('Custom CLI policy retained'));assert(!elements.get('content').innerHTML.includes('Both must apply.'));P.appSettingsTab('general');P.appSettingsEdit('login',false);P.appSettingsTab('advanced');P.appSettingsTab('protection');assert.equal(ui().settingsDraft.require,requirement);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.require,requirement);
- P.appSettingsOpen();P.appCheckToggle('internet',false);assert.equal(ui().settingsDraft.checks,'agent');assert.equal(ui().settingsDraft.require,'all');assert.equal(elements.get('settings-custom-policy').textContent,'');assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.require,'all');}
+ for(const requirement of ['1','2','none']){P.reset();P.act('save-cli',{...get().settings,require:requirement});P.appSettingsOpen();P.appSettingsTab('protection');assert(!elements.get('content').innerHTML.includes('Custom CLI policy retained'));assert(!elements.get('content').innerHTML.includes('Both must apply.'));P.appSettingsTab('general');P.appSettingsEdit('login',false);P.appSettingsTab('advanced');P.appSettingsTab('protection');assert.equal(ui().settingsDraft.require,requirement);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.require,requirement);
+ P.appSettingsOpen();P.appCheckToggle('internet',false);assert.equal(ui().settingsDraft.checks,'agent');assert.equal(ui().settingsDraft.require,'all');assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.require,'all');}
 });
 test('Legacy empty checks stay untouched on unrelated Save, newly empty choices require Until stopped', () => {
  P.reset();P.act('save-cli',{...get().settings,checks:'',require:'none'});P.appSettingsOpen();P.appSettingsEdit('notifications',false);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.checks,'');assert.equal(get().settings.require,'none');
- P.appSettingsOpen();P.appCheckToggle('agent',true);P.appCheckToggle('agent',false);assert.equal(P.appSettingsSave(),false);assert.equal(ui().settingsErrors.checks,'Select one, or choose Until I stop.');P.appSettingsEdit('forever',true);assert.equal(ui().settingsErrors.checks,undefined);P.appSettingsEdit('forever',false);assert.equal(ui().settingsErrors.checks,'Select one, or choose Until I stop.');P.appSettingsEdit('forever',true);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.checks,'');assert.equal(get().settings.forever,true);
+ P.appSettingsOpen();P.appCheckToggle('agent',true);P.appCheckToggle('agent',false);assert.equal(P.appSettingsSave(),false);assert.equal(ui().settingsErrors.checks,'Select agent activity or internet availability.');P.appSettingsEdit('forever',true);assert.equal(ui().settingsErrors.checks,undefined);P.appSettingsEdit('forever',false);assert.equal(ui().settingsErrors.checks,'Select agent activity or internet availability.');P.appSettingsEdit('forever',true);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.checks,'');assert.equal(get().settings.forever,true);
 });
 test('Until stopped dims checks without dropping selection and restores them when off', () => {
  P.reset();P.appSettingsOpen();P.appCheckToggle('internet',false);P.appSettingsEdit('forever',true);P.appSettingsTab('protection');let markup=elements.get('content').innerHTML;assert(markup.includes('data-app-check="agent"'));assert.equal(P.settingDisabled('checks'),true);assert.equal(ui().settingsDraft.checks,'agent');assert.equal(P.settingDisabled('batteryProtection'),false);P.appSettingsTab('advanced');P.appSettingsTab('protection');P.appSettingsEdit('forever',false);assert.equal(P.settingDisabled('checks'),false);assert.equal(ui().settingsDraft.checks,'agent');P.appSettingsCancel();assert.equal(get().settings.checks,'agent,internet');
  P.reset();P.act('save-cli',{...get().settings,require:'none'});P.appSettingsOpen();assert.equal(P.settingDisabled('checks'),false);P.appSettingsCancel();
 });
 test('Battery protection has concise action, percent cutoff and preserves inactive value', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('protection');let markup=elements.get('content').innerHTML;assert(markup.includes('Allow sleep below'));assert(markup.includes('<span>Lock Mac</span>'));assert(!markup.includes('<span>1</span>'));assert(markup.includes('class="battery-inline"'));assert(markup.includes('aria-label="Battery cutoff percent"'));assert(markup.includes('<span aria-hidden="true">%</span>'));assert(markup.includes('Plug in or recharge to resume.'));assert(!markup.includes('Pauses protection and recovery.'));
- P.appSettingsTab('general');assert(elements.get('content').innerHTML.includes('<span>Desktop notification prompt</span>'));assert(!elements.get('content').innerHTML.includes('<span>1</span>'));P.appSettingsTab('protection');P.appSettingsEdit('batteryCutoff',27);P.appSettingsEdit('batteryProtection',false);P.appSettingsTab('general');P.appSettingsTab('protection');assert.equal(P.settingDisabled('batteryCutoff'),true);assert.equal(ui().settingsDraft.batteryCutoff,27);P.appSettingsEdit('batteryProtection',true);assert.equal(ui().settingsDraft.batteryCutoff,27);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.batteryCutoff,27);
+ P.reset();P.appSettingsOpen();P.appSettingsTab('protection');let markup=elements.get('content').innerHTML;assert(markup.includes('Allow sleep below'));assert(markup.includes('<span>Lock Mac</span>'));assert(!markup.includes('<span>1</span>'));assert(markup.includes('class="battery-inline"'));assert(markup.includes('aria-label="Battery cutoff percent"'));assert(markup.includes('<span aria-hidden="true">%</span>'));assert(!markup.includes('Pauses protection and recovery.'));
+ P.appSettingsTab('general');assert(elements.get('content').innerHTML.includes('<span>Hotspot notifications</span>'));assert(!elements.get('content').innerHTML.includes('<span>1</span>'));P.appSettingsTab('protection');P.appSettingsEdit('batteryCutoff',27);P.appSettingsEdit('batteryProtection',false);P.appSettingsTab('general');P.appSettingsTab('protection');assert.equal(P.settingDisabled('batteryCutoff'),true);assert.equal(ui().settingsDraft.batteryCutoff,27);P.appSettingsEdit('batteryProtection',true);assert.equal(ui().settingsDraft.batteryCutoff,27);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.batteryCutoff,27);
 });
-test('Simple awake mode uses one native radio group and preserves focus and draft policy', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('protection');let markup=elements.get('content').innerHTML;assert.equal((markup.match(/name="nightr-awake-mode"/g)||[]).length,2);assert.equal((markup.match(/type="radio"/g)||[]).length,2);assert(!markup.includes('Keep awake until I stop it'));assert(!markup.includes('All selected checks'));assert(!markup.includes('safe power'));assert(markup.includes('Agent is active'));assert(markup.includes('Internet is available'));
- const radio=document.getElementById('awake-mode-until');radio.dataset={setting:'app:forever',awakeMode:'until'};radio.type='radio';radio.value='until';radio.checked=true;
- const previous=document.querySelectorAll;document.querySelectorAll=selector=>selector==='[data-setting]'?[radio]:[];P.render();const before=elements.get('content').innerHTML;radio.focus();radio.onchange();assert.equal(ui().settingsDraft.forever,true);assert.equal(ui().settingsDraft.checks,'agent,internet');assert.equal(document.getElementById('automatic-conditions').hidden,true);assert.equal(document.activeElement,radio);assert.equal(elements.get('content').innerHTML,before);document.querySelectorAll=previous;
- P.appModeSelect('automatic');assert.equal(ui().settingsDraft.forever,false);assert.equal(document.getElementById('automatic-conditions').hidden,false);P.appSettingsCancel();
-});
-test('Hidden conditions and custom CLI policy survive mode switches and unrelated Save', () => {
- P.reset();P.act('save-cli',{...get().settings,checks:'agent',require:'1'});P.appSettingsOpen();P.appSettingsTab('protection');P.appModeSelect('until');P.appSettingsTab('advanced');P.appSettingsTab('protection');let markup=elements.get('content').innerHTML;assert(markup.includes('id="automatic-conditions" hidden'));assert.equal(ui().settingsDraft.checks,'agent');assert.equal(ui().settingsDraft.require,'1');P.appModeSelect('automatic');assert.equal(ui().settingsDraft.checks,'agent');assert.equal(ui().settingsDraft.require,'1');P.appSettingsEdit('notifications',false);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.require,'1');
- P.appSettingsOpen();P.appCheckToggle('internet',true);assert.equal(ui().settingsDraft.require,'all');assert.equal(document.getElementById('settings-custom-policy').textContent,'Both must apply.');P.appCheckToggle('agent',false);assert.equal(document.getElementById('settings-custom-policy').textContent,'');P.appSettingsCancel();
+test('Saved until-stopped configurations survive opening settings and can return to automatic rules', () => {
+ P.reset();P.act('save-cli',{...get().settings,forever:true,checks:'agent',require:'1'});
+ P.appSettingsOpen();P.appSettingsTab('protection');
+ assert(elements.get('content').innerHTML.includes('data-use-rules'));
+ P.appSettingsEdit('notifications',false);assert(P.appSettingsSave());assert(get().settings.forever);
+ P.appSettingsOpen();P.useAutomaticRules();assert.equal(ui().settingsDraft.forever,false);
+ assert.equal(ui().settingsDraft.checks,'agent');assert.equal(ui().settingsDraft.require,'1');
+ P.appSettingsCancel();assert(get().settings.forever);
+ P.appSettingsOpen();P.useAutomaticRules();assert(P.appSettingsSave());assert.equal(get().settings.forever,false);
+ P.reset();P.act('save-cli',{...get().settings,forever:true,checks:'',require:'none'});
+ P.appSettingsOpen();P.useAutomaticRules();assert(P.appSettingsSave());
+ assert.equal(get().settings.checks,'agent,internet');assert.equal(get().settings.require,'all');
 });
 test('Connection strip distinguishes verified, probing, stale and association-only states', () => {
  P.reset();const s=get(),before=JSON.stringify(s);assert.equal(P.connectivitySummary(s).label,'Connected');assert.equal(JSON.stringify(s),before);
  s.probe.active=true;assert.equal(P.connectivitySummary(s).label,'Checking internet…');s.probe.active=false;s.internetFresh=false;assert.equal(P.connectivitySummary(s).label,'Awaiting verification');s.internet=false;s.lastAssociation=true;assert.equal(P.connectivitySummary(s).label,'No internet');
- s.outage={phase:'active',attempts:2,limit:3};assert.equal(P.connectivitySummary(s).detail,'Hotspot attempt 2 of 3');s.outage.phase='exhausted';s.outage.attempts=3;assert.equal(P.connectivitySummary(s).detail,'3 attempts used · still checking internet');
+ s.outage={phase:'active',attempts:2,limit:3};assert.equal(P.connectivitySummary(s).detail,'Hotspot attempt 2 of 3');s.outage.phase='exhausted';s.outage.attempts=3;assert.equal(P.connectivitySummary(s).detail,'3 attempts used, still checking internet');
 });
 test('Connection strip never claims active checks while stopped, asleep, unsafe or disabled', () => {
  P.reset();const base=get();base.internet=false;base.outage={phase:'exhausted',attempts:3,limit:3};
@@ -248,24 +277,33 @@ test('Connection strip never claims active checks while stopped, asleep, unsafe 
 });
 test('Hotspot form keeps exact seconds and disabled staged values with native info controls', () => {
  P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');P.appSettingsEdit('ssid','Sample Phone');P.appSettingsEdit('outageDelay',179);P.appSettingsEdit('fallback',false);P.appSettingsTab('general');P.appSettingsTab('connectivity');const markup=elements.get('content').innerHTML;
- assert(markup.includes('Use saved hotspot'));assert(markup.includes('for="setting-app-ssid">Hotspot'));assert(markup.includes('for="setting-app-outageDelay">Try after'));assert(markup.includes('value="179"'));assert(markup.includes('<span>seconds</span>'));assert(markup.includes('value="Sample Phone"'));assert.equal(P.settingDisabled('ssid'),true);assert.equal(P.settingDisabled('outageDelay'),true);
- assert.equal((markup.match(/class="macos-guidance-row"/g)||[]).length,1);assert(!markup.includes('>Guide…</button>'));assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.outageDelay,179);assert.equal(get().settings.ssid,'Sample Phone');
+ assert(markup.includes('Use saved hotspot'));assert(markup.includes('>Network<'));assert(markup.includes('for="timing-value-outageDelay">Try after'));assert(markup.includes('value="179"'));assert(markup.includes('value="sec"'));assert(markup.includes('>Sample Phone<'));assert.equal(P.settingDisabled('ssid'),false);assert.equal(P.settingDisabled('outageDelay'),true);
+ assert.equal((markup.match(/data-hotspot-mode/g)||[]).length,1);assert(!markup.includes('>Guide…</button>'));assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.outageDelay,179);assert.equal(get().settings.ssid,'Sample Phone');
 });
 test('Advanced groups explain the timing sequence without an undefined inactivity control', () => {
  P.reset();P.appSettingsOpen();P.appSettingsTab('advanced');const markup=elements.get('content').innerHTML;
  for(const label of ['Automatic checks','Before allowing sleep'])assert(markup.includes('<legend>'+label+'</legend>'));
- for(const label of ['Check every','Wait before retrying','Extra attempts','First retry delay'])assert(markup.includes(label));
- for(const help of ['How often to check the conditions selected in Protection.','Keep awake through pauses or lost internet before retrying.','Retry failed conditions before allowing sleep.','Later waits double, up to 5 minutes.','These limits apply with the lid open or closed.'])assert(markup.includes(help));
+ for(const label of ['Check interval','Initial wait','Scheduled wait','18 min 30 sec','15 min + 30 sec + 1 min + 2 min','Number of rechecks','First retry delay'])assert(markup.includes(label));
+ for(const help of ['How often Nightr checks your Protection rules.','Time to stay awake after a rule stops passing.','Set to zero to allow sleep after the wait.','Each retry waits twice as long, up to 5 min.'])assert(markup.includes(help));
  assert(!markup.includes('<h3>Advanced</h3>'));assert(!markup.includes('timing-value-inactivity'));assert(!markup.includes('Health-check retries are separate from the three hotspot'));
- assert.equal((markup.match(/<span class="timing-unit">seconds<\/span>/g)||[]).length,3);assert(markup.includes('15 minutes'));P.appSettingsCancel();
+ assert.equal((markup.match(/data-time-unit=/g)||[]).length,3);P.appSettingsCancel();
+});
+test('Scheduled wait updates as the draft changes and caps each retry at five minutes', () => {
+ P.reset();P.appSettingsOpen();P.appSettingsTab('advanced');
+ P.timingInput('backoff','180');P.timingInput('retries','4');
+ assert.equal(elements.get('scheduled-wait').textContent,'33 min');
+ P.timingInput('retries','0');assert.equal(elements.get('scheduled-wait').textContent,'15 min');
+ P.timingInput('grace','0');assert.equal(elements.get('scheduled-wait').textContent,'0 sec');
+ P.timingInput('grace','');assert.equal(elements.get('scheduled-wait').textContent,'—');
+ P.appSettingsCancel();
 });
 test('Zero extra attempts disables first delay while preserving its exact value', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('advanced');P.timingInput('backoff','47');P.timingInput('retries','0');assert.equal(P.settingDisabled('backoff'),true);assert.equal(ui().settingsDraft.backoff,47);assert.equal(document.getElementById('timing-help-retries').textContent,'No extra attempts');assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.backoff,47);
- P.appSettingsOpen();P.appSettingsTab('advanced');let markup=elements.get('content').innerHTML;assert(markup.includes('No extra attempts'));P.timingInput('retries','2');assert.equal(P.settingDisabled('backoff'),false);assert.equal(ui().settingsDraft.backoff,47);assert.equal(document.getElementById('timing-help-retries').textContent,'Retry failed conditions before allowing sleep.');P.appSettingsCancel();
+ P.reset();P.appSettingsOpen();P.appSettingsTab('advanced');P.timingInput('backoff','47');P.timingInput('retries','0');assert.equal(P.settingDisabled('backoff'),true);assert.equal(ui().settingsDraft.backoff,47);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.backoff,47);
+ P.appSettingsOpen();P.appSettingsTab('advanced');let markup=elements.get('content').innerHTML;assert(markup.includes('Set to zero to allow sleep after the wait.'));P.timingInput('retries','2');assert.equal(P.settingDisabled('backoff'),false);assert.equal(ui().settingsDraft.backoff,47);P.appSettingsCancel();
 });
 test('Duration hints are exact and leave stored seconds untouched', () => {
  assert.equal(P.durationHint(900),'15 minutes');assert.equal(P.durationHint(901),'15 minutes 1 second');assert.equal(P.durationHint(3600),'1 hour');assert.equal(P.durationHint(86400),'24 hours');assert.equal(P.durationHint(30),'');assert.equal(P.durationHint(60.5),'');
- P.reset();P.appSettingsOpen();P.appSettingsTab('advanced');P.timingInput('grace','901');assert.equal(ui().settingsDraft.grace,901);assert.equal(document.getElementById('timing-duration-grace').textContent,'15 minutes 1 second');P.appSettingsTab('general');P.appSettingsTab('advanced');assert.equal(ui().settingsDraft.grace,901);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.grace,901);
+ P.reset();P.appSettingsOpen();P.appSettingsTab('advanced');P.timingInput('grace','901');assert.equal(ui().settingsDraft.grace,901);P.appSettingsTab('general');P.appSettingsTab('advanced');assert.equal(ui().settingsDraft.grace,901);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.grace,901);
 });
 test('Hidden inactivity value survives app edits and remains available in CLI compatibility', () => {
  P.reset();P.act('save-cli',{...get().settings,inactivity:37});P.appSettingsOpen();P.appSettingsTab('advanced');assert(!elements.get('content').innerHTML.includes('data-setting="app:inactivity"'));P.timingInput('every','44');assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.inactivity,37);
@@ -283,7 +321,7 @@ test('Nearby networks deduplicate exact names and rank current before signal str
 test('Configured absence is reported only from fresh complete discovery', () => {
  for(const state of ['scanning','permission','denied','off','unavailable','stale','error'])assert.equal(P.wifiAvailability(P.wifiFixture(state),'Absent phone'),'Availability unknown',state);
  assert.equal(P.wifiAvailability(P.wifiFixture('complete'),'Absent phone'),'Not seen');assert.equal(P.wifiAvailability(P.wifiFixture('empty'),'Absent phone'),'Not seen');
- P.reset();P.appSettingsOpen();P.appSettingsEdit('ssid','Absent phone');P.networkChooserOpen();assert(P.savedWifiOptions().some(row=>row.ssid==='Absent phone'&&row.meta==='Configured · Not seen'));P.networkChooserClose();P.appSettingsCancel();
+ P.reset();P.appSettingsOpen();P.appSettingsEdit('ssid','Absent phone');P.networkChooserOpen();assert(P.savedWifiOptions().some(row=>row.ssid==='Absent phone'&&row.meta==='Configured, Not seen'));P.networkChooserClose();P.appSettingsCancel();
 });
 test('Network choice is local until Use, then parent-staged until Save', () => {
  P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');P.appSettingsEdit('notifications',false);const modelBefore=JSON.stringify(get());P.networkChooserOpen();P.networkSelect('Travel Hotspot');P.networkTab('nearby');P.networkTab('manual');assert.equal(ui().networkChooser.selected,'Travel Hotspot');assert.equal(ui().settingsDraft.ssid,'Sample iPhone');P.networkChooserClose();assert.equal(ui().settingsDraft.ssid,'Sample iPhone');assert.equal(ui().settingsDraft.notifications,false);
@@ -308,7 +346,7 @@ test('Chooser tabs and Escape retain the parent draft and return to the invoking
  mainKeydown({key:'ArrowRight',target:{dataset:{networkTab:'saved'}},preventDefault(){}});assert.equal(ui().networkChooser.tab,'nearby');P.networkSelect('Travel Hotspot');mainKeydown({key:'Escape',target:element(),preventDefault(){}});assert.equal(ui().networkChooser,null);assert.equal(ui().settingsDraft.ssid,before);assert.equal(ui().settings,true);assert.equal(document.activeElement,trigger);P.appSettingsCancel();
 });
 test('Discovery actions and outer fixtures stay out of the product configuration', () => {
- P.reset();P.setWifiScenario('complete');P.appSettingsOpen();P.appSettingsTab('connectivity');assert(elements.get('content').innerHTML.includes('readonly data-setting="app:ssid"'));assert(elements.get('content').innerHTML.includes('data-wifi-scenario'));P.networkChooserOpen();P.networkTab('nearby');let dialog=elements.get('modal-root').innerHTML;assert(dialog.includes('Refresh'));assert(!dialog.includes('Enable discovery'));assert(!dialog.includes('data-wifi-scenario'));
+ P.reset();P.setWifiScenario('complete');P.appSettingsOpen();P.appSettingsTab('connectivity');assert(elements.get('content').innerHTML.includes('id="choose-hotspot" data-choose-network'));assert(elements.get('content').innerHTML.includes('data-wifi-scenario'));P.networkChooserOpen();P.networkTab('nearby');let dialog=elements.get('modal-root').innerHTML;assert(dialog.includes('Refresh'));assert(!dialog.includes('Enable discovery'));assert(!dialog.includes('data-wifi-scenario'));
  P.networkChooserClose();P.setWifiScenario('permission');P.networkChooserOpen();P.networkTab('nearby');dialog=elements.get('modal-root').innerHTML;assert(dialog.includes('Enable discovery'));assert.equal((dialog.match(/Permission needed/g)||[]).length,1);const token=P.networkScanStart(true);assert.equal(P.networkScanComplete(token),true);assert.equal(ui().networkChooser.scan.state,'ok');P.networkChooserClose();P.appSettingsCancel();P.setWifiScenario('complete');
 });
 test('Manually saved secured networks prompt for a demo password and never retain its raw value', () => {
@@ -350,14 +388,26 @@ test('Invalid hotspot attempt limits cannot save and do not change the active bu
  for(const limit of [0,11,1.5,'',NaN]){P.reset();P.appSettingsOpen();P.appSettingsEdit('hotspotAttempts',limit);assert.equal(P.appSettingsSave(),false);assert.equal(get().settings.hotspotAttempts,3);P.appSettingsCancel();}
 });
 test('macOS sample profiles distinguish Automatic Ask-only and unknown auto-join', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');for(const [profile,label]of [['unknown','Unknown'],['setup','Setup needed'],['eligible','Automatic'],['ask','Ask'],['earlier','Ask']]){P.setMacProfile(profile);const markup=elements.get('content').innerHTML;assert(markup.includes(label));assert.equal((markup.match(/class="macos-guidance-row"/g)||[]).length,1);assert(!markup.includes('Details…'));assert(!markup.includes('Setup…'));}
+ P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');for(const [profile,label]of [['unknown','Unknown'],['setup','Ask to Join'],['eligible','Automatic'],['ask','Ask'],['earlier','Ask']]){P.setMacProfile(profile);const markup=elements.get('content').innerHTML;assert(markup.includes(label));assert.equal((markup.match(/data-hotspot-mode/g)||[]).length,1);assert(!markup.includes('Details…'));assert(!markup.includes('Setup…'));}
  assert.equal(P.credentialStatus('Sample iPhone'),'Password saved');assert.equal(P.credentialSecurity('Studio Wi-Fi'),'open');assert.equal(get().settings.ssid,'Sample iPhone');
 });
 test('Saved list selections use Keychain metadata without password controls', () => {
  P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');assert(!elements.get('content').innerHTML.includes('data-change-password'));P.networkChooserOpen();for(const tab of ['saved']){P.networkTab(tab);for(const name of ['Sample iPhone','Travel Hotspot','Studio Wi-Fi','Café Pocket']){P.networkSelect(name);const inline=elements.get('network-credential-host').innerHTML;assert(!inline.includes('type="password"'));assert(!inline.includes('data-network-security'));assert(!inline.includes('<button'));}const token=P.networkScanStart();P.networkScanComplete(token);assert(!elements.get('network-credential-host').innerHTML.includes('type="password"'));}P.networkChooserClose();P.appSettingsCancel();
 });
-test('Manually saved existing password reuses on blank input and replaces in the same field', () => {
- P.reset();P.appSettingsOpen();P.networkChooserOpen();P.networkTab('manual');assert(elements.get('network-credential-host').innerHTML.includes('Leave blank to use saved password.'));assert.equal(P.networkUse(),true);assert.equal(Object.keys(ui().pendingCredentials).length,0);P.networkChooserOpen();P.networkTab('manual');const input=document.getElementById('network-demo-password');input.value='replacement-demo-only';assert.equal(P.networkUse(),true);assert.equal(input.value,'');assert.equal(ui().pendingCredentials['Sample iPhone'].validated,true);assert(!JSON.stringify(ui()).includes('replacement-demo-only'));assert.equal(P.appSettingsSave(),true);
+test('Saved reuses a pending Nearby credential without a password message', () => {
+ P.reset();P.appSettingsOpen();P.networkChooserOpen();P.networkTab('nearby');P.networkSelect('Travel Hotspot');
+ assert.equal(P.demoPasswordSubmit('fixture-only'),true);
+ P.networkChooserOpen();P.networkTab('saved');P.networkSelect('Travel Hotspot');
+ assert.equal(elements.get('network-credential-host').innerHTML,'');
+ assert.equal(P.networkUse(),true);assert.equal(ui().pendingCredentials['Travel Hotspot'].validated,true);
+ assert.equal(P.appSettingsSave(),true);
+ P.appSettingsOpen();P.networkChooserOpen();P.networkSelect('Travel Hotspot');
+ assert.equal(elements.get('network-credential-host').innerHTML,'');P.networkChooserClose();P.appSettingsCancel();
+});
+test('Manual reuses an exact saved password without an input', () => {
+ P.reset();P.appSettingsOpen();P.networkChooserOpen();P.networkTab('manual');
+ const inline=elements.get('network-credential-host').innerHTML;assert(!inline.includes('type="password"'));assert(inline.includes('Saved'));
+ assert.equal(P.networkUse(),true);assert.equal(Object.keys(ui().pendingCredentials).length,0);assert.equal(P.appSettingsSave(),true);
 });
 test('Tab changes clear the DOM password before showing target credential controls', () => {
  P.reset();P.appSettingsOpen();P.networkChooserOpen();P.networkTab('manual');P.networkSelect('Travel Hotspot');const input=document.getElementById('network-demo-password');input.value='transient-manual-only';P.networkTab('nearby');assert.equal(input.value,'');assert(elements.get('network-credential-host').innerHTML.includes('type="password"'));const token=P.networkScanStart();P.networkScanComplete(token);assert.equal(input.value,'');P.networkTab('saved');assert(!elements.get('network-credential-host').innerHTML.includes('type="password"'));P.networkTab('manual');assert.equal(input.value,'');P.networkChooserClose();P.appSettingsCancel();
@@ -365,10 +415,11 @@ test('Tab changes clear the DOM password before showing target credential contro
 test('Manual unknown security cannot commit and secured choice reveals inline field immediately', () => {
  P.reset();P.appSettingsOpen();P.networkChooserOpen();P.networkTab('manual');P.networkSelect('New manual hotspot');assert.equal(P.networkSecurity(),'secured');assert.equal(P.networkUse(),false);assert.equal(ui().networkChooser.error,'Enter a demo password.');P.networkSecuritySelect('secured');assert(elements.get('network-credential-host').innerHTML.includes('type="password"'));assert.equal(ui().networkChooser.step,'select');P.networkSecuritySelect('open');assert(!elements.get('network-credential-host').innerHTML.includes('type="password"'));assert.equal(P.networkUse(),true);P.appSettingsCancel();
 });
-test('macOS guidance rows use readonly readiness marks without Sample or Details actions', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');let markup=elements.get('content').innerHTML.split('<legend>macOS settings</legend>')[1].split('</fieldset>')[0];assert.equal((markup.match(/class="macos-guidance-row"/g)||[]).length,1);assert.equal((markup.match(/data-readiness="unknown"/g)||[]).length,1);assert(!markup.includes('Sample'));assert(!markup.includes('Details'));assert(!markup.includes('Setup…'));assert(!markup.includes('type="checkbox"'));
- P.setMacProfile('eligible');markup=elements.get('content').innerHTML.split('<legend>macOS settings</legend>')[1].split('</fieldset>')[0];assert.equal((markup.match(/data-readiness="on"/g)||[]).length,1);assert(markup.includes('Auto-join iPhone hotspot: Automatic'));
- P.setMacProfile('earlier');markup=elements.get('content').innerHTML.split('<legend>macOS settings</legend>')[1].split('</fieldset>')[0];assert(markup.includes('Auto-join iPhone hotspot: Ask'));assert(markup.includes('Open setup guidance.'));P.appSettingsCancel();
+test('Wi-Fi Settings is a separate control from the reported preference', () => {
+ P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');P.setMacProfile('eligible');
+ const markup=elements.get('content').innerHTML;
+ assert.match(markup,/data-confirmed="true">[^]*?✓<\/span>Automatic<\/span><button data-connectivity-guide="auto"/);
+ assert(markup.includes('aria-label="Open Wi-Fi Settings"'));P.appSettingsCancel();
 });
 test('Manual defaults to password entry and keeps its selected security while names change', () => {
  P.reset();P.appSettingsOpen();P.networkChooserOpen();P.networkTab('manual');assert.equal(P.networkSecurity(),'secured');P.networkSelect('First manual name');assert(elements.get('network-credential-host').innerHTML.includes('type="password"'));const input=document.getElementById('network-demo-password');input.value='temporary-demo';P.networkSelect('Second manual name');assert.equal(input.value,'');assert.equal(P.networkSecurity(),'secured');assert(elements.get('network-credential-host').innerHTML.includes('type="password"'));
@@ -380,8 +431,8 @@ test('Missing or unknown list credentials are never auto-saved and stale Manual 
  P.reset();P.appSettingsOpen();P.networkChooserOpen();P.networkTab('manual');P.networkSecuritySelect('open');P.networkTab('saved');assert.equal(P.networkSecurity(),'secured');assert.equal(P.networkUse(),true);assert.equal(Object.keys(ui().pendingCredentials).length,0);assert.equal(P.appSettingsSave(),true);assert.equal(ui().credentialSaved['Sample iPhone'],true);
  P.appSettingsOpen();P.networkChooserOpen();P.networkTab('saved');P.networkSelect('Café Pocket');assert.equal(P.networkUse(),true);assert.equal(P.appSettingsSave(),true);assert.equal(P.credentialSecurity('Café Pocket'),'unknown');assert.equal(ui().credentialSaved['Café Pocket'],undefined);
 });
-test('macOS on off and unknown marks use high-contrast 20px SVG boxes and guides omit product labels', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');for(const [profile,state,count]of [['unknown','unknown',1],['setup','off',1],['eligible','on',1]]){P.setMacProfile(profile);const markup=elements.get('content').innerHTML.split('<legend>macOS settings</legend>')[1].split('</fieldset>')[0];assert.equal((markup.match(new RegExp('data-readiness="'+state+'"','g'))||[]).length,count);assert.equal((markup.match(/<rect x="2" y="2" width="16" height="16"/g)||[]).length,1);assert.equal((markup.match(/width="20" height="20"/g)||[]).length,1);assert(!markup.includes('type="checkbox"'));}P.connectivityGuidance('instant');assert(!elements.get('modal-root').innerHTML.includes('Sample guidance'));assert(!elements.get('modal-root').innerHTML.includes('Details'));uiContext.closeModal();P.appSettingsCancel();
+test('Wi-Fi preference guide stays read-only and returns to Settings', () => {
+ P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');P.connectivityGuidance('instant');assert(!elements.get('modal-root').innerHTML.includes('Sample guidance'));assert(!elements.get('modal-root').innerHTML.includes('Details'));uiContext.closeModal();P.appSettingsCancel();
 });
 test('Settings appearance follows the selected light and dark theme', () => {
  P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');P.setAppearance('light');assert(elements.get('content').innerHTML.includes('native-settings native-light'));assert(html.includes('.native-settings.native-light{--native-bg:#f6f5f2f2;--native-ink:#202228;'));assert(html.includes('.native-settings.native-light button{background:#ffffff;color:#202228;'));assert(html.includes('.native-settings.native-light button:disabled{background:#ececea;color:#85878d;'));P.setAppearance('dark');assert(!elements.get('content').innerHTML.includes('native-settings native-light'));P.appSettingsCancel();
@@ -404,15 +455,21 @@ test('Nearby Open never authorizes deleting an existing Keychain entry', () => {
  P.reset();vm.runInContext("U.credentialSaved['Studio Wi-Fi']=true;U.securitySaved['Studio Wi-Fi']='open';U.credentialSaved['Café Pocket']=true;U.securitySaved['Café Pocket']='unknown';",uiContext);P.appSettingsOpen();P.networkChooserOpen();P.networkTab('nearby');P.networkSelect('Studio Wi-Fi');assert.equal(P.networkUse(),true);assert.equal(Object.keys(ui().pendingCredentials).length,0);assert.equal(P.appSettingsSave(),true);assert.equal(ui().credentialSaved['Studio Wi-Fi'],true);
  P.appSettingsOpen();P.networkChooserOpen();P.networkTab('nearby');P.networkSelect('Café Pocket');P.networkSecuritySelect('open');assert.equal(P.networkUse(),true);assert.equal(Object.keys(ui().pendingCredentials).length,0);assert.equal(P.appSettingsSave(),true);assert.equal(ui().credentialSaved['Café Pocket'],true);
 });
-test('macOS section retains only compact Auto-join guidance', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');for(const [profile,status]of [['unknown','Not checked'],['eligible','Automatic'],['ask','Ask'],['earlier','Ask'],['unavailable','Unavailable']]){P.setMacProfile(profile);const markup=elements.get('content').innerHTML.split('<legend>macOS settings</legend>')[1].split('</fieldset>')[0];assert.equal((markup.match(/class="macos-guidance-row"/g)||[]).length,1);assert(markup.includes('Auto-join iPhone hotspot: '+status));assert(!markup.includes('Wake'));}P.appSettingsCancel();
+test('Only confirmed connectivity values display a green check and label', () => {
+ P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');
+ for(const [profile,label,confirmed] of [['eligible','Automatic',true],['ask','Ask to Join',false],['unknown','Unknown',false],['unavailable','Unavailable',false]]) {
+   P.setMacProfile(profile);const markup=elements.get('content').innerHTML;
+   const status=markup.split('data-hotspot-mode>')[1].split('<button')[0];
+   assert(status.includes('data-confirmed="'+confirmed+'"'));assert.equal(status.includes('class="ds-check"'),confirmed);
+   assert(status.includes(label));assert(!status.includes('type="checkbox"'));
+ } P.appSettingsCancel();
 });
 test('Auto-join marks follow the setting independently of Instant Hotspot eligibility', () => {
- for(const [instant,autoJoin,label,ready,unknown]of [['Ready','Ask','Ask',false,false],['Unknown','Automatic','Automatic',true,false],['Ready','Unknown','Not checked',false,true],['Ready','Ask only','Ask',false,false],['Ready','Unavailable','Unavailable',false,false]]){const value=P.autoJoinStatus({instant,autoJoin});assert.equal(value.label,label);assert.equal(value.ready,ready);assert.equal(value.unknown,unknown);}
- P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');P.setMacProfile('ask');const markup=elements.get('content').innerHTML.split('<legend>macOS settings</legend>')[1].split('</fieldset>')[0];assert(markup.includes('Status only · change in System Settings.'));assert(markup.split('data-connectivity-guide="auto"')[1].split('</button>')[0].includes('data-readiness="off"'));assert(!markup.includes('Instant Hotspot'));P.appSettingsCancel();
+ for(const [instant,autoJoin,label,ready,unknown]of [['Ready','Ask','Ask to Join',false,false],['Unknown','Automatic','Automatic',true,false],['Ready','Unknown','Unknown',false,true],['Ready','Ask only','Ask to Join',false,false],['Ready','Unavailable','Unavailable',false,false]]){const value=P.autoJoinStatus({instant,autoJoin});assert.equal(value.label,label);assert.equal(value.ready,ready);assert.equal(value.unknown,unknown);}
+ P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');P.setMacProfile('ask');const markup=elements.get('content').innerHTML;assert(markup.includes('Ask to Join'));assert(markup.includes('data-connectivity-guide="auto"'));assert(!markup.includes('<legend>Instant Hotspot</legend>'));P.appSettingsCancel();
 });
 test('Auto-join dialogs explain current setting purpose and actionable path without changing settings', () => {
- P.reset();P.appSettingsOpen();const before=JSON.stringify(get());for(const [profile,status,instruction]of [['unknown','Not checked','Choose Automatic on macOS 26+.'],['ask','Ask','Choose Automatic on macOS 26+.'],['eligible','Automatic','Choose Automatic on macOS 26+.'],['earlier','Ask','Automatic needs macOS 26+; use Ask to Join here.']]){P.setMacProfile(profile);P.connectivityGuidance('auto');const markup=elements.get('modal-root').innerHTML;for(const copy of ['Auto-join iPhone hotspot','Current: '+status,'Use your nearby iPhone when Wi-Fi is unavailable.','System Settings → Wi-Fi → Ask to join hotspots',instruction])assert(markup.includes(copy));uiContext.closeModal();}assert.equal(JSON.stringify(get()),before);P.appSettingsCancel();
+ P.reset();P.appSettingsOpen();const before=JSON.stringify(get());for(const [profile,status,instruction]of [['unknown','Unknown','Choose Automatic on macOS 26+.'],['ask','Ask to Join','Choose Automatic on macOS 26+.'],['eligible','Automatic','Choose Automatic on macOS 26+.'],['earlier','Ask to Join','Automatic needs macOS 26+; use Ask to Join here.']]){P.setMacProfile(profile);P.connectivityGuidance('auto');const markup=elements.get('modal-root').innerHTML;for(const copy of ['Auto-join iPhone hotspot','Current: '+status,'Use your nearby iPhone when Wi-Fi is unavailable.','System Settings → Wi-Fi → Ask to join hotspots',instruction])assert(markup.includes(copy));uiContext.closeModal();}assert.equal(JSON.stringify(get()),before);P.appSettingsCancel();
 });
 test('Removed network-wake guides and fixtures cannot open dialogs', () => {
  P.reset();P.appSettingsOpen();const before=JSON.stringify(get());for(const kind of ['wake','wake-ac','wake-battery']){assert.equal(P.connectivityGuidance(kind),false);assert.equal(elements.get('modal-root').innerHTML,'');}assert.equal(JSON.stringify(get()),before);for(const token of ['wakeAC','wakeBattery','Wake for network access','Wake on both sources','data-connectivity-guide="wake'])assert(!html.includes(token));P.appSettingsCancel();

@@ -12,7 +12,9 @@ import time
 here = Path(__file__).resolve().parent
 repo = here.parents[1]
 app_sources = repo / "Sources/NightrApp"
-views = [app_sources / "CompactSettingsForm.swift", here / "SettingsPreview.swift", app_sources / "SettingsToolbar.swift", app_sources / "HotspotJoinMode.swift"]
+views = [here / name for name in ("SettingsPreview.swift", "PanePreview.swift", "PreviewEvents.swift")]
+views += [app_sources / name for name in ("CompactSettingsForm.swift", "SettingsToolbar.swift", "HotspotJoinMode.swift",
+                                           "NetworkChooser.swift", "NightrPopover.swift", "ActivityPresentation.swift")]
 key = hashlib.sha256(os.fsencode(repo)).hexdigest()[:16]
 cache = Path.home() / "Library/Caches/ai.nightr.settings-preview" / key
 cache.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -24,11 +26,11 @@ def publish(name, value):
     pending.replace(cache / name)
 
 
-def build_view(build, products, core):
+def build_view(build, products, libraries):
     module = "SettingsPreview" + str(time.time_ns())
     image = build / (module + ".dylib")
     result = subprocess.run(["swiftc", "-emit-library", "-module-name", module, "-I", products / "Modules",
-                             *views, core, "-o", image])
+                             *views, *libraries, "-o", image])
     return image if result.returncode == 0 else None
 
 
@@ -43,19 +45,28 @@ def run(check_only):
             return
         with tempfile.TemporaryDirectory(dir=cache) as build:
             build = Path(build)
-            subprocess.run(["swift", "build", "--target", "NightrController"], cwd=repo, check=True)
-            products = Path(subprocess.check_output(["swift", "build", "--show-bin-path"], cwd=repo, text=True).strip())
-            core = build / "libNightrCore.dylib"
-            subprocess.run(["swiftc", "-emit-library", "-o", core, *sorted((products / "NightrCore.build").glob("*.swift.o"))], check=True)
-            controller = build / "libNightrController.dylib"
-            subprocess.run(["swiftc", "-emit-library", "-o", controller, core, *sorted((products / "NightrController.build").glob("*.swift.o"))], check=True)
-            host = build / "Nightr Settings Preview"
-            subprocess.run(["swiftc", "-parse-as-library", "-I", products / "Modules", here / "Host.swift", core, controller, "-o", host], check=True)
+            # The preview links individual target objects from SwiftPM's native build layout.
+            swift_build = ["swift", "build", "--build-system", "native", "--scratch-path", cache / "swiftpm"]
+            subprocess.run([*swift_build, "--target", "NightrPlatform"], cwd=repo, check=True)
+            products = Path(subprocess.check_output([*swift_build, "--show-bin-path"], cwd=repo, text=True).strip())
+            libraries = []
+            for target in ("NightrCore", "NightrController", "NightrPowerProtocol", "NightrPowerClient", "NightrPlatform"):
+                library = build / ("lib" + target + ".dylib")
+                subprocess.run(["swiftc", "-emit-library", "-o", library, *libraries,
+                                *sorted((products / (target + ".build")).glob("*.swift.o"))], check=True)
+                libraries.append(library)
+            host = build / "Nightr Pane Preview"
+            subprocess.run(["swiftc", "-parse-as-library", here / "Host.swift", here / "PreviewEvents.swift",
+                            app_sources / "MenuPopoverDismissal.swift", "-o", host], check=True)
             if check_only:
-                image = build_view(build, products, core)
+                image = build_view(build, products, libraries)
                 if image is None:
                     return 1
                 subprocess.run(["swift", here / "CheckProtectionLayout.swift", image], check=True)
+                dismissal_check = build / "CheckDismissal"
+                subprocess.run(["swiftc", "-parse-as-library", here / "CheckDismissal.swift",
+                                app_sources / "MenuPopoverDismissal.swift", "-o", dismissal_check], check=True)
+                subprocess.run([dismissal_check], check=True)
                 return 0
             process = None
             previous = None
@@ -64,7 +75,7 @@ def run(check_only):
                     signature = tuple(p.stat().st_mtime_ns if p.exists() else None for p in views)
                     if signature != previous:
                         previous = signature
-                        image = build_view(build, products, core)
+                        image = build_view(build, products, libraries)
                         if image:
                             publish("revision", str(image.relative_to(cache)))
                             if process is None:

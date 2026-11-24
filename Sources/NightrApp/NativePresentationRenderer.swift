@@ -44,6 +44,12 @@ import NightrController
                 }
                 try checkToolbarKeyboard(frameView)
             }
+            let rows = ActivityModelRow.rows(sample("On").sample.activity, now: Date())
+            for row in rows.prefix(2) {
+                let state = row.inference ? "generating" : "idle"
+                let view = LocalModelDetails(row: row).environment(\.colorScheme, scheme)
+                try render(view, size: nil, dark: dark, to: output.appendingPathComponent("model-\(state)-\(suffix).png"))
+            }
             let fixtures: [(String, ControllerStatus?, DesktopServiceStatus?)] = [
                 ("Off", sample("Off"), .enabled), ("On", sample("On"), .enabled),
                 ("Paused", sample("Paused"), .enabled), ("Recovering", sample("Recovering"), .enabled),
@@ -167,22 +173,32 @@ import NightrController
         precondition(abs(titleFrame.midX - frameView.bounds.midX) <= 1 && title.alignment == .center)
         precondition(window.title == title.stringValue && window.titleVisibility == .hidden)
         precondition(window.frame.size == NSSize(width: 470, height: SettingsLayout.bodyHeight), "Settings window size drifted from the approved preview")
-        guard section == .general || section == .protection else { return }
         // Read the rendered pane so unexpected SwiftUI-only rows are covered as well.
         let request = VNRecognizeTextRequest()
         request.recognitionLanguages = ["en-US"]
         try VNImageRequestHandler(url: capture).perform([request])
         let labels = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ").lowercased()
+        let required: [String]
+        switch section {
+        case .advanced: required = ["check interval", "first retry delay", "scheduled wait"]
+        case .connectivity: required = ["ask to join hotspots", "attempts"]
+        case .protection: required = ["allow sleep below"]
+        case .general: required = ["hotspot notifications"]
+        }
+        for label in required + ["reset", "cancel", "save"] where !labels.contains(label) {
+            throw RenderError.generalControl("Missing visible \(section.rawValue) control: " + label)
+        }
+        guard section == .protection || section == .general else { return }
         if section == .protection {
             guard labels.contains("allow sleep below"), labels.contains("internet is available"),
                   !labels.contains("connectivity settings") else { throw RenderError.generalControl("Protection rows") }
             return
         }
         try checkGeneralCheckboxes(capture, width: frameView.bounds.width)
-        for expected in ["launch at login", "hotspot notifications", "enable force mode"] where !labels.contains(expected) {
+        for expected in ["launch at login", "hotspot notifications"] where !labels.contains(expected) {
             throw RenderError.generalControl(expected)
         }
-        for extra in ["power helper", "set up nightr"] where labels.contains(extra) {
+        for extra in ["power helper", "set up nightr", "force mode"] where labels.contains(extra) {
             throw RenderError.generalControl(extra)
         }
     }

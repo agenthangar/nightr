@@ -5,156 +5,283 @@ import NightrPlatform
 
 private enum NetworkSource: String, CaseIterable, Identifiable { case saved = "Saved", nearby = "Nearby", manual = "Manual"; var id: String { rawValue } }
 // An AppKit secure field owns the uncommitted text. No SwiftUI binding publishes it.
-private final class PasswordInput {
+private final class PasswordInput: NSObject, ObservableObject, NSTextFieldDelegate {
+    @Published private(set) var hasText = false
+    func controlTextDidChange(_ notification: Notification) {
+        hasText = field?.stringValue.isEmpty == false
+    }
     weak var field: NSSecureTextField?
     func take() -> Data? {
         guard let field, !field.stringValue.isEmpty else { return nil }
-        defer { field.stringValue = "" }
+        defer { clear() }
         return Data(field.stringValue.utf8)
     }
-    func clear() { field?.stringValue = "" }
+    func clear() {
+        field?.stringValue = ""
+        hasText = false
+    }
 }
 private struct NativePasswordField: NSViewRepresentable {
     let input: PasswordInput
+    let label: String
     func makeNSView(context: Context) -> NSSecureTextField {
-        let field = NSSecureTextField(); field.placeholderString = "Password"; field.setAccessibilityLabel("Network password"); input.field = field; return field
+        let field = NSSecureTextField()
+        field.placeholderString = "Enter password"
+        field.font = .systemFont(ofSize: 14)
+        field.isBezeled = false
+        field.isBordered = false
+        field.drawsBackground = false
+        field.delegate = input
+        input.field = field
+        return field
     }
-    func updateNSView(_ nsView: NSSecureTextField, context: Context) { input.field = nsView }
+    func updateNSView(_ nsView: NSSecureTextField, context: Context) { input.field = nsView; nsView.setAccessibilityLabel(label) }
     static func dismantleNSView(_ nsView: NSSecureTextField, coordinator: ()) { nsView.stringValue = "" }
+}
+
+struct NetworkChooserData {
+    var saved: @Sendable () throws -> [String]
+    var scan: @Sendable (BoundedProcess) throws -> NetworkObservation
+    var credential: @Sendable (String, BoundedProcess) throws -> NativeCredentialStatus
+
+    static var live: Self {
+        let worker = NetworkWorkerClient(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/NightrNetworkWorker"))
+        return Self(saved: { try KeychainCredentials(interactionAllowed: false).savedSSIDs() },
+                    scan: { try worker.scan(process: $0) },
+                    credential: { try worker.credentialStatus(ssid: $0, process: $1) })
+    }
 }
 
 struct NetworkChooser: View {
     let configured: String
     let pending: CredentialEdit
     let pendingSecurity: NetworkSecurity?
+    var data = NetworkChooserData.live
     let use: (String, CredentialEdit, NetworkSecurity?) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var source: NetworkSource = .saved
-    @State private var selected = ""
+    @State private var selectedSaved = ""
+    @State private var selectedNearby = ""
     @State private var manual = ""
     @State private var manualSecurity = NetworkSecurity.password
     @State private var nearbySecurity: [Data: NetworkSecurity] = [:]
     @State private var saved: [String] = []
+    @State private var loadingSaved = true
     @State private var observation: NetworkObservation?
     @State private var scanning = false
     @State private var generation = UUID()
     @State private var scanProcess: BoundedProcess?
     @State private var error: String?
-    @State private var password = PasswordInput()
-    @State private var permission = DiscoveryPermission()
+    @StateObject private var password = PasswordInput()
+    @State private var permission: DiscoveryPermission?
+    @State private var passwordEntryID: String?
     @State private var credentialState: NativeCredentialStatus?
-    @State private var credentialIdentity: Data?
+    @State private var completedLookupID: String?
+    @State private var checkedSource: NetworkSource?
     @State private var credentialGeneration = UUID()
     @State private var credentialProcess: BoundedProcess?
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Choose hotspot").font(.headline)
-            Picker("Networks", selection: $source) { ForEach(NetworkSource.allCases) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented)
-            Group {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Choose hotspot").font(.system(size: 16, weight: .semibold))
+                Picker("Networks", selection: $source) {
+                    ForEach(NetworkSource.allCases) { Text($0.rawValue).tag($0) }
+                }.pickerStyle(.segmented).labelsHidden().accessibilityLabel("Network source")
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(sectionTitle).font(.system(size: 13, weight: .semibold))
+                    Spacer()
+                    if source == .nearby { Button("Refresh") { refresh() }.disabled(scanning) }
+                }.frame(height: 26)
                 switch source {
                 case .saved: savedList
                 case .nearby: nearbyList
                 case .manual: manualForm
                 }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            if source != .saved, validSSID(name) {
-                if source == .nearby && (observation?.networks.first(where: { sameSSID($0.ssid, name) })?.security ?? .unknown) == .unknown {
-                    Picker("Network security", selection: Binding(get: { nearbySecurity[ssidIdentity(name)] ?? .unknown }, set: { password.clear(); nearbySecurity[ssidIdentity(name)] = $0 })) {
-                        Text("Choose security").tag(NetworkSecurity.unknown); Text("Open").tag(NetworkSecurity.open); Text("Password required").tag(NetworkSecurity.password)
-                    }
-                }
-                if security == .password {
-                    if hasCredential { Text("Saved password will be reused.").font(.callout).foregroundStyle(.secondary) }
-                    else if credentialState == nil { Text("Checking saved access…").font(.callout).foregroundStyle(.secondary) }
-                    else {
-                        if credentialState == .authorization { Text("Saved password needs access repair in Settings.").font(.callout).foregroundStyle(.secondary) }
-                        NativePasswordField(input: password).frame(height: 25)
-                    }
-                }
+                if source == .nearby { credentials }
+                if let error { Text(error).font(.callout).foregroundStyle(.red) }
             }
-            if let error { Text(error).font(.callout).foregroundStyle(.red) }
-            Divider()
-            HStack {
-                Spacer(); Button("Cancel") { close() }.keyboardShortcut(.cancelAction)
-                Button("Use network") { commit() }.keyboardShortcut(.defaultAction).disabled(!validSSID(name) || (source != .saved && security == .unknown) || (source != .saved && security == .password && credentialState == nil))
+            .padding(.top, 14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Divider().padding(.vertical, 12)
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Cancel") { close() }.buttonStyle(SettingsActionStyle()).keyboardShortcut(.cancelAction)
+                Button("Use network") { commit() }.buttonStyle(SettingsActionStyle(primary: true)).keyboardShortcut(.defaultAction).disabled(!canUseNetwork)
             }
-        }.padding(SettingsLayout.contentInset).frame(width: 480, height: 420)
+        }.padding(SettingsLayout.formInset).frame(width: 440, height: 360)
+        .foregroundStyle(.primary).tint(.nightrAmber)
+        .background(Color.nightrSurface)
         .onAppear {
-            selected = configured; manual = configured
-            do { saved = try KeychainCredentials(interactionAllowed: false).savedSSIDs(); if !configured.isEmpty && !saved.contains(where: { sameSSID($0, configured) }) { saved.insert(configured, at: 0) } }
-            catch { self.error = error.localizedDescription; saved = configured.isEmpty ? [] : [configured] }
+            selectedSaved = configured; manual = configured
         }
-        .onChange(of: source) { _ in password.clear(); error = nil }
-        .onChange(of: ssidIdentity(selected)) { _ in password.clear(); error = nil }
-        .onChange(of: ssidIdentity(manual)) { _ in password.clear(); error = nil }
-        .onChange(of: manualSecurity) { _ in password.clear(); error = nil }
+        .task(id: source) {
+            guard source == .saved else { return }
+            loadingSaved = true
+            let lookup = data.saved
+            let result = await Task.detached { Result { try lookup() } }.value
+            guard !Task.isCancelled else { return }
+            switch result {
+            case .success(let names): saved = names
+            case .failure(let failure): saved = []; error = failure.localizedDescription
+            }
+            if !configured.isEmpty && !saved.contains(where: { sameSSID($0, configured) }) {
+                saved.insert(configured, at: 0)
+            }
+            loadingSaved = false
+        }
+        .onChange(of: credentialLookupID) { _ in passwordEntryID = nil; password.clear(); error = nil }
         .task(id: credentialLookupID) { await inspectCredential() }
         .onDisappear { generation = UUID(); scanProcess?.cancel(); credentialGeneration = UUID(); credentialProcess?.cancel(); password.clear() }
     }
-    private var credentialLookupID: String { source.rawValue + ":" + ssidIdentity(name).base64EncodedString() + ":" + security.rawValue }
-    private var savedAccessLabel: String {
-        if !validSSID(name) { return "Select a saved network. Passwords stay in Keychain." }
-        if hasCredential { return "Saved password is available to Nightr." }
-        if credentialState == nil { return "Checking saved access…" }
-        return credentialState == .authorization ? "Saved credential needs authorization. Use hotspot access repair in Settings if a join is blocked." : "No saved password found. Use macOS Wi-Fi settings or Manual to add one."
+    private var sectionTitle: String {
+        switch source {
+        case .saved: return "Saved networks"
+        case .nearby: return "Nearby networks"
+        case .manual: return "Network details"
+        }
     }
-    private var selectionIdentity: Binding<Data> {
-        Binding(get: { ssidIdentity(selected) }, set: { identity in
-            if let record = observation?.networks.first(where: { $0.id == identity }) { selected = record.ssid }
-            else if let name = saved.first(where: { ssidIdentity($0) == identity }) { selected = name }
+
+    @ViewBuilder private var credentials: some View {
+        if validSSID(name) {
+            if source == .nearby && (observation?.networks.first(where: { sameSSID($0.ssid, name) })?.security ?? .unknown) == .unknown {
+                Picker("Network security", selection: Binding(get: { nearbySecurity[ssidIdentity(name)] ?? .unknown }, set: { password.clear(); nearbySecurity[ssidIdentity(name)] = $0 })) {
+                    Text("Choose security").tag(NetworkSecurity.unknown); Text("Open").tag(NetworkSecurity.open); Text("Password required").tag(NetworkSecurity.password)
+                }
+            }
+            if security == .password {
+                Divider()
+                if !enteringNearbyPassword && (hasCredential || (currentCredential == nil && !keepManualField)) {
+                    settingsRow("Password") {
+                        HStack {
+                            NightrStatusLabel(text: hasCredential ? "Saved" : "Checking…",
+                                              tone: hasCredential ? .confirmed : .checking)
+                            if source == .nearby {
+                                Spacer()
+                                Button(hasCredential ? "Change password" : "Enter password") {
+                                    passwordEntryID = credentialLookupID
+                                }
+                                .buttonStyle(.link)
+                            }
+                        }.frame(width: inputWidth, alignment: .leading)
+                    }
+                }
+                else {
+                    if currentCredential == .authorization { Text("Saved password needs access repair in Settings.").font(.system(size: 13)).foregroundStyle(Color.nightrMuted) }
+                    settingsRow("Password", hint: source == .nearby ? "Checked when joining." : nil) {
+                        settingsField(width: inputWidth, accented: true) {
+                            Image(systemName: "key.fill").foregroundStyle(Color.nightrAmber).accessibilityHidden(true)
+                            NativePasswordField(input: password, label: "Password for \(name)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var credentialLookupID: String { source.rawValue + ":" + ssidIdentity(name).base64EncodedString() + ":" + security.rawValue }
+    private var enteringNearbyPassword: Bool { source == .nearby && passwordEntryID == credentialLookupID }
+    private var canUseNetwork: Bool {
+        guard validSSID(name) else { return false }
+        if source == .saved || security == .open { return true }
+        guard security == .password else { return false }
+        if enteringNearbyPassword { return password.hasText }
+        return hasCredential || (currentCredential != nil && password.hasText)
+    }
+    private var currentCredential: NativeCredentialStatus? {
+        completedLookupID == credentialLookupID ? credentialState : nil
+    }
+    // Keep an existing entry field mounted while the user types a different SSID.
+    // Only the completed lookup for the exact current request can enable Use network.
+    private var keepManualField: Bool {
+        source == .manual && checkedSource == .manual && (credentialState == .missing || credentialState == .authorization)
+    }
+    private var savedAccessNotice: String? {
+        if hasCredential || (sameSSID(name, configured) && pendingSecurity == .open) { return nil }
+        if currentCredential == nil { return "Checking saved access…" }
+        return currentCredential == .authorization ? "Saved credential needs authorization. Use hotspot access repair in Settings if a join is blocked." : "No password available to Nightr. If this network needs one, enter it in Manual."
+    }
+    private var selectionIdentity: Binding<Data?> {
+        Binding(get: { name.isEmpty ? nil : ssidIdentity(name) }, set: { identity in
+            switch source {
+            case .saved: selectedSaved = saved.first { ssidIdentity($0) == identity } ?? ""
+            case .nearby: selectedNearby = observation?.networks.first { $0.id == identity }?.ssid ?? ""
+            case .manual: break
+            }
         })
     }
-    private var name: String { source == .manual ? manual : selected }
+    private var name: String {
+        switch source {
+        case .saved: return selectedSaved
+        case .nearby: return selectedNearby
+        case .manual: return manual
+        }
+    }
     private var security: NetworkSecurity {
         if source == .manual { return manualSecurity }
         return nearbySecurity[ssidIdentity(name)] ?? observation?.networks.first(where: { sameSSID($0.ssid, name) })?.security ?? .unknown
     }
     private var hasCredential: Bool {
         if case .password(let ssid, _) = pending, sameSSID(ssid, name) { return true }
-        return credentialIdentity == ssidIdentity(name) && credentialState == .available
+        return currentCredential == .available
     }
     private var savedList: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Keychain and configured networks").font(.callout).foregroundStyle(.secondary)
-            if saved.isEmpty { Text("No saved hotspot. Use Nearby or Manual.") }
-            Picker("Saved networks", selection: selectionIdentity) {
-                ForEach(saved.map { NetworkRecord(ssid: $0) }) { record in
-                let ssid = record.ssid
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(ssid)
-                    Text((sameSSID(ssid, configured) ? "Configured, " : "Saved, ") + (observation?.availability(of: ssid) ?? "Availability unknown")).font(.caption).foregroundStyle(.secondary)
-                }.tag(ssidIdentity(ssid))
-                }
-            }.pickerStyle(.radioGroup).labelsHidden()
-            Text(savedAccessLabel).font(.callout).foregroundStyle(.secondary)
+            if loadingSaved { ProgressView("Loading saved networks…").controlSize(.small) }
+            else if saved.isEmpty && error == nil { Text("No saved networks. Choose Nearby or Manual.") }
+            List(saved.map { NetworkRecord(ssid: $0) }, selection: selectionIdentity) { record in
+                HStack {
+                    Text(verbatim: record.ssid)
+                    Spacer()
+                    if sameSSID(record.ssid, configured) { Text("Configured").font(.system(size: 12)) }
+                }.font(.system(size: 14)).tag(record.id)
+            }.listStyle(.plain).scrollContentBackground(.hidden).accessibilityLabel("Saved networks")
+            if validSSID(name), let savedAccessNotice { Text(savedAccessNotice).font(.system(size: 13)).foregroundStyle(Color.nightrMuted) }
         }
     }
     private var nearbyList: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(scanning ? "Scanning…" : stateLabel).font(.callout).foregroundStyle(.secondary)
-                Spacer(); Button("Refresh") { refresh() }.disabled(scanning)
+            if scanning {
+                ProgressView("Scanning…").controlSize(.small)
+            } else if observation?.state != .complete || observation?.networks.isEmpty == true {
+                Text(stateLabel).font(.system(size: 13)).foregroundStyle(Color.nightrMuted)
             }
             if observation?.state == .permission {
-                Button("Enable discovery…") { permission.request() }
+                Button("Enable discovery…") { if permission == nil { permission = DiscoveryPermission() }; permission?.request() }
             }
             if let observation, observation.state == .denied || observation.state == .disabled {
                 Button("Open Location Services settings…") { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")!) }
             }
-            ScrollView {
-                Picker("Nearby networks", selection: selectionIdentity) {
-                    ForEach(observation?.networks ?? []) { record in
-                        HStack { Text(record.ssid); if record.current { Text("Current").font(.caption) }; Image(systemName: record.security == .open ? "wifi" : "lock.fill") }.tag(ssidIdentity(record.ssid))
-                    }
-                }.pickerStyle(.radioGroup).labelsHidden()
-            }
+            List(observation?.networks ?? [], selection: selectionIdentity) { record in
+                HStack {
+                    Text(verbatim: record.ssid)
+                    Spacer()
+                    if record.current { Text("Current").font(.system(size: 12)) }
+                    Image(systemName: record.security == .open ? "wifi" : "lock.fill")
+                }.font(.system(size: 14)).tag(record.id)
+            }.listStyle(.plain).scrollContentBackground(.hidden).accessibilityLabel("Nearby networks")
         }.onAppear { if observation == nil { refresh() } }
     }
+    private let inputWidth: CGFloat = 206
     private var manualForm: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            TextField("Exact Wi-Fi name", text: $manual).textFieldStyle(.roundedBorder)
-            Text("1–32 UTF-8 bytes. Spaces and letter case are preserved.").font(.callout).foregroundStyle(.secondary)
-            Picker("Security", selection: $manualSecurity) { Text("Password required").tag(NetworkSecurity.password); Text("Open").tag(NetworkSecurity.open) }.pickerStyle(.radioGroup)
+        VStack(alignment: .leading, spacing: 0) {
+            settingsRow("Network name") {
+                settingsField(width: inputWidth) {
+                    TextField("Exact Wi-Fi name", text: $manual).textFieldStyle(.plain)
+                        .accessibilityLabel("Network name")
+                }
+            }
+            if !manual.isEmpty && !validSSID(manual) {
+                Text("Enter 1–32 UTF-8 bytes without control characters.")
+                    .font(.callout).foregroundStyle(.red)
+            }
+            Divider()
+            settingsRow("Security") {
+                settingsChoiceMenu("Security", selection: $manualSecurity,
+                                   options: [(.password, "Password required"), (.open, "Open")], width: inputWidth)
+            }
+            credentials
         }
     }
     private var stateLabel: String {
@@ -173,9 +300,9 @@ struct NetworkChooser: View {
         scanProcess?.cancel()
         let id = UUID(); generation = id; scanning = true
         let process = BoundedProcess(); scanProcess = process
-        let worker = NetworkWorkerClient(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/NightrNetworkWorker"))
+        let scan = data.scan
         Task {
-            let result = await Task.detached { try? worker.scan(process: process) }.value
+            let result = await Task.detached { try? scan(process) }.value
             guard generation == id else { return }
             observation = result ?? .init(state: .failed); scanning = false; scanProcess = nil
         }
@@ -183,17 +310,24 @@ struct NetworkChooser: View {
     private func inspectCredential() async {
         credentialProcess?.cancel()
         let id = UUID(); credentialGeneration = id
-        let exactName = name, identity = ssidIdentity(name)
-        credentialIdentity = identity; credentialState = nil
-        guard validSSID(exactName) else { return }
-        if case .password(let ssid, _) = pending, sameSSID(ssid, exactName) { credentialState = .available; return }
+        let exactName = name, lookupID = credentialLookupID
+        completedLookupID = nil
+        guard validSSID(exactName), source == .saved || security == .password else { return }
+        if case .password(let ssid, _) = pending, sameSSID(ssid, exactName) {
+            credentialState = .available; checkedSource = source; completedLookupID = lookupID
+            return
+        }
+        if source == .manual {
+            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+        }
         let process = BoundedProcess(); credentialProcess = process
-        let worker = NetworkWorkerClient(executable: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/NightrNetworkWorker"))
+        let inspect = data.credential
         let result = await withTaskCancellationHandler {
-            await Task.detached { try? worker.credentialStatus(ssid: exactName, process: process) }.value
+            await Task.detached { try? inspect(exactName, process) }.value
         } onCancel: { process.cancel() }
-        guard !Task.isCancelled, credentialGeneration == id, ssidIdentity(name) == identity else { return }
-        credentialState = result ?? .authorization; credentialProcess = nil
+        guard !Task.isCancelled, credentialGeneration == id, credentialLookupID == lookupID else { return }
+        credentialState = result ?? .authorization
+        checkedSource = source; completedLookupID = lookupID; credentialProcess = nil
     }
     private func close() { password.clear(); generation = UUID(); scanProcess?.cancel(); credentialGeneration = UUID(); credentialProcess?.cancel(); dismiss() }
     private func commit() {
@@ -203,10 +337,12 @@ struct NetworkChooser: View {
             // List selection cannot create, clear, or reclassify a saved credential.
             if case .password(let ssid, _) = pending, sameSSID(ssid, name) { edit = pending }
         } else if security == .password {
-            if case .password(let ssid, _) = pending, sameSSID(ssid, name) { edit = pending }
-            else if !hasCredential {
+            if enteringNearbyPassword || !hasCredential {
+                guard enteringNearbyPassword || currentCredential != nil else { return }
                 guard let data = password.take() else { error = "Enter the network password."; return }
                 edit = .password(ssid: name, data: data)
+            } else if case .password(let ssid, _) = pending, sameSSID(ssid, name) {
+                edit = pending
             }
         } else if security == .open {
             // Only an explicit Manual conversion authorizes removing an old entry.

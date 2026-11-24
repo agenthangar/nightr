@@ -1,9 +1,27 @@
-# Nightr design direction
+# Nightr design system
 
 This is the implementation brief authorized by the launch plan. The user approved
 concept 1, the moon with awake spark, and approved proceeding with implementation
 after removing Wake for network access on 2026-11-14. Network-wake settings and
 guidance are outside the approved product scope; normal-wake recovery remains.
+
+## Decisions and regression checks
+
+Use this index when changing the app, either preview, the CLI or the website. The November 14 mockup is the visual baseline. The decisions below record subsequent review feedback. The Swift preview loads the production views and uses synthetic observations. The browser preview exercises the same interactions with fictional data.
+
+| Area | Decision | Implementation and evidence |
+| --- | --- | --- |
+| Brand and appearance | Use the desktop moon-and-spark icon in the pane header. Give the menu bar distinct active, inactive and force silhouettes. Respect light and dark appearance throughout sheets and menus. | `MoonSparkArtwork`, `SettingsToolbar`, `NativePresentationRenderer.checkArtwork` and the light/dark pane captures |
+| Status | For confirmed Connected, Active, Automatic and saved credentials, color the circled check **and the label** green. Show a checking state while observations are pending. Use ordinary ink for Unknown, Ask to Join and Never. Keep the Wi-Fi Settings link a separate accessible action. | `NightrStatusLabel`, `CompactSettingsForm`, `checkStatusInk` in the native preview check and the browser confirmed-status tests |
+| Main pane | Put protection and its actions first. Force mode uses an amber lightning bolt and a named action to end it. While forced, the Internet and Agent rows both read “Checks paused” in neutral ink. Ending force restores the previous intent. Stop ends protection. Clicking the menu icon opens the pane even with Settings open. Clicking elsewhere dismisses it. | `NightrPopover`, `MenuPopoverDismissal`, native pane fixtures and `testForceOverridesChecksButHonorsSafetyAndOriginalIntent` |
+| Models and diagnostics | Show model name, runtime and generating or loaded/idle state up front. Show available throughput beside generation. Keep context and memory in details. Omit unexplained evidence, freshness and expiry rows. Use cyan for CPU and amber for GPU, with numeric labels. | `ActivityPresentation`, populated native pane preview and `design-preview/activity.html` |
+| Settings | Center the window title, preserve toolbar icon padding and give the four tabs a common layout. Use system type, readable secondary ink, a shared checkbox, a fixed footer and one pending draft. | `SettingsLayout`, `CompactSettingsForm`, full-window keyboard, title, artwork and checkbox render checks |
+| Rows and fields | Follow Advanced for all forms. Align labels and hints left and visible controls right. Use a compact menu, a single duration field with unit control, or a compact count field with a separate native stepper 6pt to its right. Keep explanatory copy beside the relevant option. | `CompactSettingsForm`, `NetworkChooser`, native protection-edge, chooser-anchor and count-stepper checks |
+| Protection | Under “Keep Mac awake”, label each automatic condition with “When”. Offer temporary Force mode on the main pane and in Protection. Keep the battery row visible by default and enable its 20% cutoff on new configurations. Respect explicit opt-out and external power. | `testBatteryCutoffDefaultsAndSavedOptOut`, `testForceOverridesChecksButHonorsSafetyAndOriginalIntent`, native Protection capture |
+| Connectivity | Show observed internet and hotspot preference first. Use the same row alignment for backup hotspot, delay and attempts. Choosing a network enables fallback in the draft. Reuse saved passwords and request a masked password for an unsaved secured network. | `NetworkChooser`, native three-tab geometry and secured/saved/open interaction checks, browser draft and credential tests |
+| CLI and website | Preserve CLI flags, configuration semantics and explicit Stop. Use the approved icon and the website typography and navigation specified below. | CLI contracts and the website, icon and lifecycle checks in `design-preview/check-preview.cjs` |
+
+For the evidence from the current review, see the [app and preview audit](docs/design-audit.md).
 
 ## Product
 
@@ -15,15 +33,14 @@ sleep. An explicit Stop remains stopped on wake and login.
 ## Native app
 
 Use familiar macOS menu bar and Settings conventions, system typography,
-keyboard access, light/dark appearance and accessible controls. Put one primary
-Start/Stop action above the diagnostic detail. Separate configured behavior from
+keyboard access, light/dark appearance and accessible controls. Put Start or Stop and the separate Force mode action above the diagnostics. Separate configured behavior from
 observed state. On, Off, Paused, Recovering and Error have textual labels as well
 as distinguishable glyph treatments. Do not rely on color alone.
 
 Settings uses a compact native window 470pt wide and up to 630pt high with General,
-Protection, Connectivity and Advanced sections. Use 15px labels, 13px explanatory
-text and aligned 37pt rows. Keep padding modest and Save, Cancel
-and Reset visible. One draft spans all sections; switching never loses pending
+Protection, Connectivity and Advanced sections. Use 15pt row labels and smaller secondary text and aligned 37pt rows. Keep padding modest and Save, Cancel
+and Reset visible. Opening Settings selects General each time. A section link selects its named destination.
+One draft spans all sections; switching never loses pending
 values. Preserve every existing setting. Keyboard focus enters the selected tab,
 stays inside the dialog, and returns to the invoking control on Save or Cancel.
 Escape cancels; section tabs support arrow keys, Home and End. The Settings
@@ -39,24 +56,29 @@ macOS. Activating it requests permission or opens notification settings.
 The visual reference is [Rectangle Settings](https://rectangleapp.com/assets/images/shortcutScreenshot.jpg).
 Borrow its native density and organization, not its product controls.
 
-The app and the hot-reload preview render the same native Settings form.
-Protection uses three groups.
+Use Advanced as the reference for form rows, including the hotspot chooser.
+Align labels and optional hints on the left, center controls vertically, and
+align their visible right edges to the form inset. Give required password entry
+a key icon and an accent outline. Network name, Security and Password share the same field height, fill and inset. Keep the password field steady while the network name is being edited.
 
-- **Keep Mac awake** uses a Mode menu for Automatically and Until I stop.
-  Automatically shows trailing checkboxes for agent activity, internet availability
-  and local generation. The Connectivity tab contains the network controls.
+Keep both action buttons in equal-width columns and reserve two lines for the status description across pane states. Align the protection title and its description in one text column beside the status icon. Separate the protection buttons from Local models with a content-width divider and 20pt of space on each side. Use 10pt of vertical padding inside model rows and 14pt between diagnostic rows. Keep each model name close to its runtime.
+
+The app and the hot-reload preview render the same native Settings form.
+Protection uses four groups.
+
+- **Force mode** has its own heading with a trailing checkbox. The heading turns amber when active. Checking or unchecking it takes effect immediately, uses the same commands as the menu bar pane, and preserves unsaved rule edits.
+- **Keep Mac awake** groups the three automatic rules. Each label starts with “When”. During Force mode, dim and disable these three rules while preserving their selections. Local inference can independently keep the Mac awake.
 - **When lid closes** aligns the Display menu and Lock Mac checkbox to the
-  same trailing edge as Mode.
+  same trailing edge as the conditions.
 - **On battery** enables Allow sleep below at 20% by default. Preserve an
   explicit opt-out and retain the threshold when disabled. On battery, Nightr
   releases its hold below the cutoff in either awake mode.
 
 Hidden automatic conditions retain their selection and are excluded
-from focus. Mode switches do not rewrite either `checks` or the legacy `require`.
+from focus. An existing until-stopped configuration offers **Use automatic rules**, which stages the change for Save.
 Only an intentional condition toggle normalizes `require=all`. Rendering,
 browsing and unrelated Save preserve imported policies and empty legacy checks.
-A newly edited empty Automatic selection shows “Select one, or choose Until I
-stop.” The CLI retains its full legacy policy controls. All fields share one
+A newly edited empty Automatic selection shows “Select agent activity or internet availability.” The CLI retains its full legacy policy controls. All fields share one
 Save/Cancel/Reset draft and battery safety applies regardless of the awake mode.
 
 Connectivity places internet verification and the macOS Ask to join hotspots
@@ -72,8 +94,7 @@ Avoid large status cards or repeated availability paragraphs. Unknown macOS
 capabilities remain informational; no help button reads or changes OS settings.
 Full prerequisites belong here, not in modal paragraphs.
 
-The hotspot field displays the selected exact name plus **Choose…**, not an inline
-free-entry field. The nested chooser has Saved, Nearby and Manual source tabs:
+The hotspot field displays the selected exact name in a trailing chooser button. The nested chooser has Saved, Nearby and Manual source tabs:
 - Saved retains the configured name even when absent from discovery. Distinguish
   saved/configured status from availability. Only a complete fresh scan may say
   Not seen; incomplete, denied, failed or stale observations mean availability
@@ -89,23 +110,23 @@ free-entry field. The nested chooser has Saved, Nearby and Manual source tabs:
   surrogates. Keep leading/trailing or all-space names when valid. Escape names in
   HTML. Use the same validator for chooser, parent Save and CLI preview settings.
 
-One chooser-local selection survives tab changes and refreshes. Use network changes
-only the parent's pending SSID; parent Save applies it. Cancel/Escape discards the
-chooser selection and returns focus to Choose. The chooser neither starts/joins
-networks nor changes credentials, fallback enablement, permissions or OS state.
-Native source-tab arrows and radio selection remain keyboard accessible. Refresh
-uses a generation token and cancellation so a late result cannot resurrect a
-closed chooser or replace a newer observation/selection. No real Wi-Fi scan runs.
+Use network stages the chosen SSID and enables fallback in the parent draft.
+Parent Save applies the draft. Cancel or Escape discards the chooser edits.
+Source tabs and network selection support keyboard navigation. Cancel outstanding
+scans when the chooser closes and ignore out-of-date results. Previews use
+synthetic networks.
 
 Network security is separate from discovery availability. Saved is Keychain-only:
-no credential fields or security choices. Use network stages the exact SSID,
+no credential fields or security choices. Omit password notices for a usable or previously entered credential. Use network stages the exact SSID,
 without creating credentials for missing/unknown entries. Existing explicitly
 validated pending metadata for the same SSID may be retained, but ordinary list
 selection cannot write or clear Keychain metadata.
 
 Nearby reuses an exact-SSID saved or validated pending password without displaying
-an input. A secured network missing both reveals the masked inline password and
-requires it before Use network. Unknown Nearby security requires explicit Open or
+an input by default. On Nearby, Change password opens an empty secure field for that network.
+Use network stages the replacement and Settings Save commits it. A secured network missing both reveals the masked inline password and
+requires it before Use network. The picker explains that authentication occurs at join time.
+Selecting or saving a nearby network must leave the current connection intact. Unknown Nearby security requires explicit Open or
 Password required; it is never inferred open. Store local Nearby choices in a
 separate exact-SSID, null-prototype override map, never in Manual's choice. Nearby
 Open may classify the network but never authorizes deleting an existing Keychain
@@ -152,25 +173,15 @@ saved credentials and Allow Others to Join. Nightr cannot toggle the phone.
 Normal wake triggers fresh bounded internet verification. Maintenance/dark wake
 must not rearm protection. Nightr does not configure or surface network-wake
 preferences.
-Advanced uses the adjustment-sliders toolbar glyph and two 15px semibold groups,
-without a duplicate panel title or technical footer:
-- **Automatic checks:** “Check every,” with “How often to check the conditions
-  selected in Protection.”
-- **Before allowing sleep:** “Wait before retrying,” with “Keep awake through
-  pauses or lost internet before retrying”; “Extra attempts,” with “Retry failed
-  conditions before allowing sleep”; and “First retry delay,” with “Later waits
-  double, up to 5 minutes.” Zero attempts shows “No extra attempts” and disables
-  the delay while retaining its value.
-
-Use one bottom line: “These limits apply when the lid is closed.” Pair each time
-slider with an exact integer input and the full word “seconds.” Interval sliders
-span 1–300 (full input 1–3600), grace 0–3600 (full input 0–86400), and first delay
-1–300. Extra attempts is an integer 0–10. Preserve valid values outside convenient
-slider windows; browsing and Save never clamp or round. Exact duration hints such
-as 900 seconds = 15 minutes are display-only and retain any remainder. Input
-and slider events synchronize in place without rerendering or focus loss.
-Fractions, empty and invalid values receive inline errors. Disabled fields are
-skipped by keyboard navigation.
+Advanced uses the adjustment-sliders glyph. **Automatic checks** contains
+Check interval. **Before allowing sleep** groups Initial wait, Number of
+rechecks and First retry delay. Show the scheduled wait as the initial wait plus
+all retry delays, doubling each delay up to five minutes. Recalculate on edit. Place a short hint below each label.
+Use exact integer fields with an integrated sec/min selector and a stepper for
+counts. Preserve seconds when switching tabs and when saving. The interval range
+is 1–3600 seconds, the grace range is 0–86400 seconds and the first delay range
+is 1–300 seconds. Zero rechecks disables the delay and retains its value.
+Validate the entered value before saving and keep keyboard focus while editing.
 
 The app no longer exposes a separate inactivity timer. Preserve the existing
 `inactivity` value and CLI compatibility on all unrelated app edits. Its
@@ -187,7 +198,7 @@ without reading query values or saving preferences. Default startup is unchanged
 
 Keep underlying path availability separate from independently verified internet.
 Path changes and normal wake request a bounded check rather than declaring
-success: 10-second cap, 30-second eligible start cadence, one active check and
+success. Use a 10-second cap, the saved Check interval (30 seconds by default), one active check and
 coalesced events. Lightweight checks continue after the configured hotspot join budget is
 exhausted without granting another join or prompt. Verified recovery clears the
 outage ledger and refreshes samples.
@@ -273,7 +284,7 @@ simulated external actions and what the user should try. Provide reset and a
 guided walkthrough. The preview must work directly from its index.html and from
 a loopback static server, including mobile-sized viewports.
 
-Protection section headings share one 15px semibold foreground style and spacing.
+Protection section headings share one semibold system type style and spacing.
 Lid settings use a compact label/control grid so the display selector and lock
 checkbox align without stretching across the window.
 

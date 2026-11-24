@@ -52,7 +52,7 @@ public actor ControllerService {
                 while !Task.isCancelled {
                     do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
                     guard let self else { return }
-                    let sample = await self.platform.sample()
+                    let sample = await self.platform.sample(checkAgentActivity: !self.engine.forceMode)
                     await self.send(.tick(sample))
                 }
             }

@@ -234,6 +234,29 @@ final class ActivityTelemetryTests: XCTestCase {
         gate.signal()
     }
 
+    func testPausedAgentMonitorSkipsProbesAndDiscardsAnInflightResult() async {
+        let calls = Counter(), gate = DispatchSemaphore(value: 0)
+        let monitor = AgentActivityMonitor(probe: {
+            let first = calls.increment() == 1
+            if first { gate.wait() }
+            return AgentProbe(processes: "", assertions: first ? "pid 123(Claude): PreventSystemSleep named" : "", network: "")
+        })
+        let now = Date()
+        _ = await monitor.snapshot(enabled: false, now: now)
+        XCTAssertEqual(calls.get(), 0)
+        _ = await monitor.snapshot(now: now)
+        _ = await monitor.snapshot(enabled: false, now: now)
+        gate.signal()
+        var resumed = AgentObservation.checking
+        for _ in 0..<1000 {
+            resumed = await monitor.snapshot(now: now)
+            if resumed != .checking { break }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertEqual(resumed, .idle)
+        XCTAssertEqual(calls.get(), 2)
+    }
+
     func testAgentFailedObservationDoesNotBecomeIdle() async {
         let calls = Counter()
         let monitor = AgentActivityMonitor(probe: { _ = calls.increment(); return nil })
