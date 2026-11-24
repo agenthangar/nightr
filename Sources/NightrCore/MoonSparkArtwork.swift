@@ -47,18 +47,6 @@ public enum MoonSparkArtwork {
     public static let menuImage = makeMenuImage(active: false)
     public static let activeMenuImage = makeMenuImage(active: true)
 
-    public static func menuImage(for summary: GUIProtectionSummary) -> NSImage {
-        if summary.activelyProtecting && summary.symbol == "bolt.circle.fill" {
-            return forceMenuImage
-        }
-        return summary.activelyProtecting ? activeMenuImage : menuImage
-    }
-    private static let forceMenuImage: NSImage = {
-        let image = NSImage(systemSymbolName: "bolt.circle.fill", accessibilityDescription: "Nightr, Force mode")!
-        image.isTemplate = true
-        return image
-    }()
-
     private static func makeMenuImage(active: Bool) -> NSImage {
         let image = NSImage(size: NSSize(width: 19, height: 19), flipped: false) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }

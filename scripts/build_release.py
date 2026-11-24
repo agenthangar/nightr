@@ -66,6 +66,12 @@ def create_cli_alias(macos):
     # all package transports. The app signature seals this internal link.
     (macos / "nightr").symlink_to("nightr-native")
 
+def render_app_icon(resources):
+    icon_renderer = resources / "render-nightr-icon"
+    run("/usr/bin/swiftc", "-parse-as-library", ROOT / "Sources/NightrCore/MoonSparkArtwork.swift", ROOT / "scripts/render_icon.swift", "-o", icon_renderer)
+    run(icon_renderer, resources / "Nightr.icns")
+    icon_renderer.unlink()
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", required=True)
@@ -117,10 +123,7 @@ def main():
             shutil.copytree(ROOT / "zsh", resources / "zsh")
             shutil.copy2(ROOT / "LICENSE", resources / "LICENSE")
             shutil.copy2(ROOT / "packaging/homebrew-contract.json", resources / "homebrew-contract.json")
-            icon_renderer = resources / "render-nightr-icon"
-            run("/usr/bin/swiftc", "-parse-as-library", ROOT / "Sources/NightrCore/MoonSparkArtwork.swift", ROOT / "scripts/render_icon.swift", "-o", icon_renderer)
-            run(icon_renderer, resources / "Nightr.icns")
-            icon_renderer.unlink()
+            render_app_icon(resources)
             phase("Downloading checksum-pinned standalone Python runtimes")
             runtime(json.loads((ROOT / "packaging/runtime-lock.json").read_text()), resources / "runtime")
             info = {"CFBundleIdentifier": "ai.nightr.app", "CFBundleName": "Nightr", "CFBundleDisplayName": "Nightr",

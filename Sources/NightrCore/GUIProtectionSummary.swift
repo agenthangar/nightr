@@ -61,3 +61,21 @@ public struct GUIProtectionSummary {
         }
     }
 }
+
+#if os(macOS)
+import AppKit
+
+extension MoonSparkArtwork {
+    public static func menuImage(for summary: GUIProtectionSummary) -> NSImage {
+        if summary.activelyProtecting && summary.symbol == "bolt.circle.fill" {
+            return forceMenuImage
+        }
+        return summary.activelyProtecting ? activeMenuImage : menuImage
+    }
+    private static let forceMenuImage: NSImage = {
+        let image = NSImage(systemSymbolName: "bolt.circle.fill", accessibilityDescription: "Nightr, Force mode")!
+        image.isTemplate = true
+        return image
+    }()
+}
+#endif
