@@ -19,6 +19,13 @@ import build_release as build
 import watch_signed_candidate as candidate_watch
 
 
+@pytest.mark.skipif(sys.platform != 'darwin', reason='requires AppKit and iconutil')
+def test_standalone_release_icon_renderer(tmp_path):
+    build.render_app_icon(tmp_path)
+    assert (tmp_path / 'Nightr.icns').read_bytes().startswith(b'icns')
+    assert not (tmp_path / 'render-nightr-icon').exists()
+
+
 @pytest.mark.parametrize("head,conclusion", [("approved", "success"), ("approved", "failure"), ("other", "success")])
 def test_signing_watcher_requires_success_on_exact_merge(monkeypatch, head, conclusion):
     run = dict(id=42, head_sha=head, head_branch="main", path=".github/workflows/release.yml",
