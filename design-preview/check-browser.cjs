@@ -150,7 +150,8 @@ async function run() {
       assert.deepEqual(await anchors(),initial);
       const forced=(await page.locator('#force-mode').textContent())==='End force mode';
       const paused=page.locator('.native-status .item').filter({hasText:'Checks paused'});
-      assert.equal(await paused.count(),forced?2:0);
+      assert.equal(await paused.count(),forced?1:0);
+      assert.equal(await page.locator('[data-agent-row]').count(),forced?0:1);
       if(forced) assert.equal(await paused.locator('.status-good').count(),0);
     }
     const boundary = await page.locator('.local-models').evaluate(section => {
@@ -185,8 +186,79 @@ async function run() {
     assert.equal(await settings.getByLabel('When an agent is active').isChecked(),pending);
     await settings.getByRole('button',{name:'Cancel',exact:true}).click();
     assert.equal(await page.locator('#primary').textContent(),'Start protection');
+
+    for (const [scenario, visible] of [['mixed',true],['idle',false],['terminal',false],['checking',false]]) {
+      await page.evaluate(value=>{ActivityPreview.scenario(value);},scenario);
+      assert.equal(await page.locator('[data-agent-row]').count(),Number(visible));
+    }
+    await page.evaluate(()=>ActivityPreview.event('start'));
+    assert(await page.locator('.pane-status-heading').getByText('Checking agent activity…').isVisible());
+
+    await page.goto(base + '/activity.html#settings/general');
+    const updates=settings.getByRole('group',{name:'Updates',exact:true});
+    const automatic=updates.getByRole('checkbox',{name:'Automatically download updates'});
+    const check=updates.getByRole('button',{name:'Check for Updates'});
+    const install=updates.getByRole('button',{name:'Install Update…'});
+    const updateStatus=updates.getByRole('status');
+    const closeSettings=settings.getByRole('button',{name:'Close Settings'});
+    const settingsWindow=settings.locator('.native-settings');
+    const openSettings=()=>page.getByRole('button',{name:'Nightr Settings'}).click();
+    await automatic.waitFor();
+    assert(await updates.getByText('Build 8a41c2d').isVisible());
+    assert(await automatic.isChecked());
+    await capture(settingsWindow,'updates-general-dark');
+    await page.evaluate(()=>document.querySelector('#theme').click());
+    await capture(settingsWindow,'updates-general-light');
+    await check.click();
+    assert(await check.isDisabled());
+    await updateStatus.getByText('Checking…').waitFor();
+    await updateStatus.getByText('Downloading…').waitFor();
+    await updateStatus.getByText('Update Ready').waitFor();
+    assert(await install.isEnabled());
+    await capture(settingsWindow,'updates-ready-light');
+    await page.evaluate(()=>document.querySelector('#theme').click());
+    await capture(settingsWindow,'updates-ready-dark');
+    await automatic.uncheck();
+    await install.click();
+    assert(await settings.getByRole('heading',{name:'Save changes before updating?'}).isVisible());
+    await settings.getByRole('button',{name:'Discard and Continue'}).click();
+    assert(await settings.getByRole('heading',{name:'Install Nightr 0.1.1?'}).isVisible());
+    await settings.locator('#modal-actions').getByRole('button',{name:'Cancel'}).click();
+    assert(await automatic.isChecked());
+    assert(await install.isVisible());
+    await automatic.uncheck();
+    await settings.getByRole('button',{name:'Save',exact:true}).click();
+    await openSettings();
+    assert(!(await automatic.isChecked()));
+    await closeSettings.click();
+    for (const [result, message] of [['offline','Couldn’t connect'],['unpublished','No published release'],['unverified','Couldn’t verify update']]) {
+      await page.evaluate(value=>document.querySelector('#settings-frame').contentWindow.ActivitySettingsBridge.updateFixture(value),result);
+      await page.evaluate(()=>document.querySelector('#settings-frame').contentWindow.ActivitySettingsBridge.backgroundUpdate());
+      await openSettings();
+      assert(await updateStatus.getByText('Not checked yet').isVisible());
+      await check.click();
+      await updateStatus.getByText(message,{exact:true}).waitFor();
+      assert(await check.isEnabled());
+      await closeSettings.click();
+    }
+    await openSettings();
+    await settings.getByRole('button',{name:'Reset'}).click();
+    assert(await automatic.isChecked());
+    await settings.getByRole('button',{name:'Save',exact:true}).click();
+    await page.evaluate(async()=>{
+      const bridge=document.querySelector('#settings-frame').contentWindow.ActivitySettingsBridge;
+      bridge.updateFixture('available');
+      await bridge.backgroundUpdate();
+    });
+    assert(!(await page.locator('#settings').isVisible()));
+    await openSettings();
+    await updateStatus.getByText('Update Ready').waitFor();
+    await install.click();
+    await settings.getByRole('button',{name:'Simulate Install'}).click();
+    assert(await updates.getByText('Build b71e506').isVisible());
+    assert(await updateStatus.getByText('Up to date').isVisible());
     assert.deepEqual(failures,[]);
-    console.log('Browser checks passed for four tabs in both themes, status ink, Wi-Fi focus, model details, click-away, reopen and force restoration.');
+    console.log('Browser checks passed for both themes, Settings, update states, active-only Agent, Wi-Fi, model details and Force mode.');
   } finally {
     await browser?.close();
     server.close();

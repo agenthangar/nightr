@@ -8,10 +8,12 @@ private enum NumericColumn {
     static let unit: CGFloat = 50
 }
 
-func settingsRow<Control: View>(_ label: String, hint: String? = nil, @ViewBuilder control: () -> Control) -> some View {
+func settingsRow<Control: View>(_ label: String, hint: String? = nil, status: NightrStatusLabel.Tone? = nil,
+                                @ViewBuilder control: () -> Control) -> some View {
     HStack(spacing: 12) {
         VStack(alignment: .leading, spacing: 3) {
-            Text(label).font(.system(size: 15))
+            if let status { NightrStatusLabel(text: label, tone: status).font(.system(size: 14)) }
+            else { Text(label).font(.system(size: 15)) }
             if let hint {
                 Text(hint).font(.system(size: 12)).foregroundStyle(Color.nightrMuted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -35,6 +37,9 @@ struct CompactSettingsForm<NetworkControl: View>: View {
     let setForceMode: (Bool) -> Void
     var outage: String? = nil
     var repair: (() -> Void)? = nil
+    var updates = DesktopUpdatePresentation.sample
+    var automaticUpdates: Binding<Bool> = .constant(true)
+    var updateAction: () -> Void = {}
     @ViewBuilder let networkControl: () -> NetworkControl
 
     var body: some View {
@@ -56,7 +61,23 @@ struct CompactSettingsForm<NetworkControl: View>: View {
             rule
             settingsRow("Hotspot notifications") { checkbox("Hotspot notifications", $notifications).disabled(!notificationsReady) }
         }
-
+        group("Updates") {
+            settingsRow("Version") {
+                HStack(spacing: 6) {
+                    Text(updates.version).monospacedDigit()
+                    if let build = updates.build { Text("Build \(build)").font(.system(size: 12)).foregroundStyle(Color.nightrMuted) }
+                }
+            }
+            rule
+            settingsRow("Automatically download updates") { checkbox("Automatically download updates", automaticUpdates) }
+            rule
+            settingsRow(updates.phase.label, hint: updates.phase.readyVersion.map { "Version \($0)" },
+                        status: updates.phase.readyVersion != nil || updates.phase == .current ? .confirmed : updates.phase.busy ? .checking : .neutral) {
+                Button(updates.phase.readyVersion == nil ? "Check for Updates" : "Install Update…", action: updateAction)
+                    .buttonStyle(SettingsActionStyle(primary: updates.phase.readyVersion != nil))
+                    .disabled(updates.phase.busy || !updates.supported)
+            }.help(updates.phase.detail ?? "")
+        }
     }
 
     @ViewBuilder private var connectivity: some View {

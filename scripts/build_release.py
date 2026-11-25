@@ -128,7 +128,8 @@ def main():
             runtime(json.loads((ROOT / "packaging/runtime-lock.json").read_text()), resources / "runtime")
             info = {"CFBundleIdentifier": "ai.nightr.app", "CFBundleName": "Nightr", "CFBundleDisplayName": "Nightr",
                     "CFBundleExecutable": "NightrApp", "CFBundleIconFile": "Nightr", "CFBundlePackageType": "APPL", "CFBundleShortVersionString": args.version,
-                    "CFBundleVersion": args.version, "LSMinimumSystemVersion": "13.0", "LSUIElement": True,
+                    "CFBundleVersion": args.version, "NightrSourceRevision": run("git", "-C", ROOT, "rev-parse", "HEAD"),
+                    "LSMinimumSystemVersion": "13.0", "LSUIElement": True,
                     "NSHighResolutionCapable": True, "NightrTeamID": team, "NightrProtocolVersion": 1,
                     "NSLocationWhenInUseUsageDescription": "Nightr uses location permission to show nearby Wi-Fi names when you choose a hotspot."}
             with (app / "Contents/Info.plist").open("wb") as output: plistlib.dump(info, output)

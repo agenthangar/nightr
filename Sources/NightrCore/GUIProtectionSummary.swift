@@ -7,7 +7,11 @@ public struct GUIProtectionSummary {
     public let symbol: String
     public let detail: String
     public let internet: String
+    public let showsActiveAgent: Bool
     public init(status: ControllerStatus?, error: String? = nil) {
+        if let status, error == nil, status.forceMode != true, status.state.pause != .asleep, status.state.pause != .maintenanceWake {
+            showsActiveAgent = status.sample.agentObservation.map { $0 == .active } ?? status.sample.agentActive
+        } else { showsActiveAgent = false }
         if status?.forceMode == true {
             internet = "Checks paused"
         } else {

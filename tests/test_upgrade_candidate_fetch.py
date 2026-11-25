@@ -125,7 +125,8 @@ def transport(tmp_path, monkeypatch):
     monkeypatch.setattr(fetcher, 'checked_context', lambda team: ACCEPTANCE)
     git = []
     monkeypatch.setattr(fetcher.subprocess, 'run', lambda command, **kw: git.append(command))
-    args = SimpleNamespace(baseline_run_id='100', final_run_id='101', team_id=TEAM, output=tmp_path / 'candidates')
+    args = SimpleNamespace(baseline_run_id='100', final_run_id='101', baseline_version='0.0.0', final_version='0.1.0',
+                           team_id=TEAM, output=tmp_path / 'candidates')
     return SimpleNamespace(args=args, archives=archives, listings=listings, runs=runs, git=git)
 
 

@@ -167,6 +167,9 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 9px; margin-top
 <div class="control-row"><label><input type="checkbox" id="heartbeat" checked> Renew metadata heartbeat</label><span class="small">Every 5s, 15s lease</span></div>
 <div class="buttons"><button data-event="tick">Advance 5s</button><button data-event="expire">Advance 16s</button><button data-event="gpu">GPU unsupported</button><button data-event="long">Long model name</button></div>
 <div class="rule"></div><div class="buttons"><button data-event="stop">Stop</button><button data-event="battery">Low battery</button><button data-event="power">Restore safe power</button><button data-event="sleep">System sleep</button><button data-event="wake">Normal wake</button><button data-event="inactive">Inactivity pause</button><button data-event="reset">Reset sample</button></div>
+<div class="rule"></div>
+<div class="control-row"><label for="update-fixture">Update check result</label><select id="update-fixture"><option value="available">Update available</option><option value="current">Up to date</option><option value="offline">Offline</option><option value="unpublished">No published release</option><option value="unverified">Verification failed</option></select></div>
+<div class="buttons"><button id="background-update">Run background update check</button></div>
 <p class="hint">Start is explicit. Normal wake can resume enabled protection; metadata arriving after an inactivity pause cannot resume it. Stop, sleep and battery cutoff always take priority.</p><div id="notice" class="notice" role="status" aria-live="polite"></div></section>
 <section class="card"><div class="row"><h2 style="margin:0">Same state, CLI view</h2><span class="small">Read-only simulation</span></div><div class="cli-tabs"><button id="plain" aria-pressed="true">Plain</button><button id="json" aria-pressed="false">JSON</button></div><pre id="cli" tabindex="0" aria-label="Synthetic CLI status"></pre></section>
 <p class="hint">Local inference protection is off by default. Open <b>Protection settings…</b>, stage the opt-in, then Save. No endpoint is queried; four runtime capability examples and all metrics are fabricated. <a href="index.html">Full existing design preview</a></p></details></div></main>
@@ -318,7 +321,7 @@ function render() {
       <section class="local-models" aria-label="Local models"><div class="models-heading"><p class="models-caption">Local models</p>${ordered.length>2?`<button id="all-models" class="all-models" aria-expanded="${S.showAll}" aria-controls="model-list">${S.showAll?'Show less':'All '+ordered.length+'…'}</button>`:''}</div><div id="model-list" class="model-list">${shown.map(modelHTML).join('')||'<p class="no-models">No runtime observations</p>'}</div></section>
       <div class="native-status">
         <div class="item"><span>Internet</span><span>${v.internet==='verified'?statusCheck('Connected'):v.internet==='unavailable'?'Unavailable':v.internet}</span></div>
-        <div class="item"><span>Agent</span><span>${v.agent==='Active'?statusCheck('Active'):`<span class="${v.agent==='Checking…'?'status-pending':''}">${esc(v.agent)}</span>`}</span></div>
+        ${v.agent==='Active'&&!S.asleep?`<div class="item" data-agent-row><span>Agent</span><span>${statusCheck('Active')}</span></div>`:''}
         <div class="item"><span>Battery</span><span>${S.safe?'100%, Power adapter':'12%, Battery'}</span></div>
         <div class="item"><span>Lid</span><span>Open</span></div>
         <div class="hardware-meters" role="group" aria-label="System utilization">${hardwareMeter('CPU', v.cpu.percent)}${hardwareMeter('GPU', v.gpu.percent)}</div>
@@ -332,15 +335,28 @@ function notice(message){$('notice').textContent=message;}
 function advance(seconds){S.now+=seconds;if(S.heartbeat&&!S.asleep&&S.scenario!=='stale')S.lastBeat=Math.floor(S.now/5)*5;}
 function event(type){switch(type){case 'force':if(!S.force){S.priorEnabled=S.enabled;S.enabled=true;S.force=true;}break;case 'end-force':if(S.force){S.force=false;S.enabled=S.priorEnabled;}break;case 'stop':S.force=false;S.enabled=false;break;case 'quit':S.force=false;S.enabled=false;S.open=false;break;case 'start':S.enabled=true;S.waitWake=false;if(S.scenario==='checking')S.checkingUntil=S.now+15;break;case 'battery':S.safe=false;break;case 'power':S.safe=true;break;case 'sleep':S.asleep=true;break;case 'wake':S.asleep=false;S.waitWake=false;if(S.heartbeat&&S.scenario!=='stale')S.lastBeat=S.now;break;case 'inactive':S.waitWake=true;S.agent=false;break;case 'tick':advance(5);break;case 'expire':advance(16);break;case 'gpu':S.gpu=!S.gpu;break;case 'long':S.long=!S.long;break;case 'reset':S=initial();break;}render();if(type==='quit')$('menu-icon').focus();notice('Sample event: '+type+'.');}
 function scenario(value){S.scenario=value;S.checkingUntil=value==='checking'?S.now+15:null;S.internet=['mixed','terminal','checking'].includes(value);S.agent=value==='mixed';S.heartbeat=value!=='stale';S.lastBeat=value==='stale'?S.now-16:S.now;render();notice('Synthetic observations applied.');}
-function openSettings(){if(!S.settings)return;const v=snapshot(S);$('settings').showModal();$('settings-frame').contentWindow.ActivitySettingsBridge.open(S.settings,document.body.classList.contains('light')?'light':'dark',{enabled:S.enabled,force:S.force,ac:S.safe,battery:S.safe?100:12,asleep:S.asleep,internet:S.internet,hold:v.hold,waitWake:S.waitWake});}
+function openSettings(){if(!S.settings||$('settings').open)return;const v=snapshot(S);$('settings').showModal();$('settings-frame').contentWindow.ActivitySettingsBridge.open(S.settings,document.body.classList.contains('light')?'light':'dark',{enabled:S.enabled,force:S.force,ac:S.safe,battery:S.safe?100:12,asleep:S.asleep,internet:S.internet,hold:v.hold,waitWake:S.waitWake});}
+function openLinkedSettings(){if(location.hash==='#settings/general')openSettings();}
 function closeSettings(){$('settings').close();render();$('open-settings')?.focus();}
 window.ActivityPreviewBridge={
   setForceMode(enabled){event(enabled?'force':'end-force');return {force:S.force,enabled:S.enabled,hold:snapshot(S).hold};},
-  ready(defaults){fullDefaults={...defaults};if(!S.settings)S.settings={...fullDefaults};render();},
-  saved(settings){S.settings={...settings,localInference:!!settings.localInference};closeSettings();notice('Saved sample Settings.');},
+  ready(defaults){
+    fullDefaults={...defaults};
+    if(!S.settings)S.settings={...fullDefaults};
+    render();
+    openLinkedSettings();
+  },
+  saved(settings,keepOpen){
+    S.settings={...settings,localInference:!!settings.localInference};
+    if(!keepOpen)closeSettings();
+    notice('Saved sample Settings.');
+  },
   cancelled(){closeSettings();notice('Sample Settings draft cancelled.');}
 };
 $('settings').addEventListener('cancel',e=>{e.preventDefault();$('settings-frame').contentWindow.ActivitySettingsBridge.cancel();});
+window.addEventListener('hashchange',openLinkedSettings);
+$('update-fixture').onchange=e=>$('settings-frame').contentWindow.ActivitySettingsBridge?.updateFixture(e.target.value);
+$('background-update').onclick=()=>$('settings-frame').contentWindow.ActivitySettingsBridge?.backgroundUpdate();
 $('menu-icon').onclick=()=>{S.open=!S.open;render();if(S.open)$('primary').focus();};
 $('theme').onclick=()=>{const light=document.body.classList.toggle('light');$('theme').textContent=light?'Dark':'Light';$('theme').setAttribute('aria-label','Switch to '+(light?'dark':'light')+' appearance');$('settings-frame').contentWindow.ActivitySettingsBridge?.theme(light?'light':'dark');};$('scenario').onchange=e=>scenario(e.target.value);$('heartbeat').onchange=e=>{S.heartbeat=e.target.checked;notice(S.heartbeat?'Renewal enabled.':'Renewal disabled; metadata expires at 15s.');};document.querySelectorAll('[data-event]').forEach(button=>button.onclick=()=>event(button.dataset.event));$('plain').onclick=()=>{S.json=false;render();};$('json').onclick=()=>{S.json=true;render();};
 document.addEventListener('pointerdown',e=>{

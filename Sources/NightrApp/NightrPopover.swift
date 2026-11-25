@@ -59,7 +59,7 @@ struct NightrPopover: View {
             VStack(spacing: 14) {
                 diagnostic("Internet", state.internet == "Verified" ? "Connected" : state.internet,
                            verified: state.internet == "Verified", pending: state.internet == "Checking…")
-                diagnostic("Agent", agentLabel, verified: agentLabel == "Active", pending: agentLabel == "Checking…")
+                if state.showsActiveAgent { diagnostic("Agent", "Active", verified: true) }
                 diagnostic("Battery", status?.sample.batteryPercent.map { "\($0)%, \(status?.sample.onBattery == true ? "Battery" : "Power adapter")" } ?? "Not checked")
                 diagnostic("Lid", status.map { $0.sample.lidClosed ? "Closed" : "Open" } ?? "Not checked")
                 HardwareMeters(observation: status?.sample.activity)
@@ -106,16 +106,6 @@ struct NightrPopover: View {
                 Button("Stop and Quit", action: quit).keyboardShortcut("q")
             }.buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(Color.nightrMuted)
         }.padding(.horizontal, 18).padding(.vertical, 22).frame(width: 318).background(Color.nightrSurface)
-    }
-    private var agentLabel: String {
-        if forced { return "Checks paused" }
-        switch status?.sample.agentObservation {
-        case .checking: return "Checking…"
-        case .active: return "Active"
-        case .idle: return "No activity observed"
-        case nil where status == nil && error == nil: return "Checking…"
-        case nil: return status?.sample.agentActive == true ? "Active" : "Not checked"
-        }
     }
     private func diagnostic(_ name: String, _ value: String, verified: Bool = false, pending: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 12) {

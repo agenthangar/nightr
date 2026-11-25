@@ -14,7 +14,8 @@ repo = here.parents[1]
 app_sources = repo / "Sources/NightrApp"
 views = [here / name for name in ("SettingsPreview.swift", "PanePreview.swift", "PreviewEvents.swift")]
 views += [app_sources / name for name in ("CompactSettingsForm.swift", "SettingsToolbar.swift", "HotspotJoinMode.swift",
-                                           "NetworkChooser.swift", "NightrPopover.swift", "ActivityPresentation.swift")]
+                                           "NetworkChooser.swift", "NightrPopover.swift", "ActivityPresentation.swift",
+                                           "DesktopUpdatePresentation.swift")]
 key = hashlib.sha256(os.fsencode(repo)).hexdigest()[:16]
 cache = Path.home() / "Library/Caches/ai.nightr.settings-preview" / key
 cache.mkdir(parents=True, exist_ok=True, mode=0o700)

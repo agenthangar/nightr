@@ -56,6 +56,20 @@ registers this service.
 
 ## Package ownership and updates
 
+Settings → General shows the running version and signed build revision. The
+menu-bar app checks for a stable release at most once per day and stages a
+verified download when automatic downloads are enabled. **Check for Updates**
+can check and download on demand. The pending image is separate from the rollback
+cache. Homebrew-owned copies use the reviewed local cask and Homebrew’s cache.
+If the installed tap is behind, refresh it through Homebrew and check again.
+
+**Install Update…** opens the guarded installer in Terminal for administrator
+authorization. The updater checks the pending package against the current release
+again, keeps the existing owner and resumes the controller using saved intent.
+It reopens the menu-bar app after the signed package commits. Direct installs
+still require a verifiable rollback release. When ownership is unknown, follow
+the explicit direct-adoption instructions below if they apply.
+
 The shared stdlib installer is `scripts/nightr_install.py`. Its internal API is
 `main(["install" | "update" | "check", "--json"])`; `t` vendors this same file.
 `install --homebrew-only` is the internal option for an explicitly selected
@@ -291,7 +305,9 @@ and a reviewed publication path is added. Track that work in
 
 The separate manual **Signed managed upgrade acceptance** workflow
 (`upgrade-acceptance.yml`) accepts `baseline_run_id` and `final_run_id`: successful
-main-dispatch **Signed macOS candidate** runs for `0.0.0` and `0.1.0` respectively.
+main-dispatch **Signed macOS candidate** runs for the specified patch versions
+(`0.0.0` and `0.1.0` by default). Enable `desktop` to stage and install the update
+using the signed desktop updater from the baseline package.
 Both candidates must come from the **same source SHA**, and that SHA must be an
 ancestor of the acceptance workflow's exact checked-out main commit. This permits
 new acceptance tooling to validate older retained products without changing the
@@ -310,10 +326,11 @@ release acquisition.
 On a fresh GitHub-hosted `macos-15` runner, the existing `check_upgrade.py`
 acceptance harness then runs unchanged under its real nonroot UID/HOME and PTY.
 It installs the signed baseline, performs explicit verified direct adoption and
-a real managed `0.0.0` to `0.1.0` update, and checks the resulting signed payload,
+a real managed version upgrade, and checks the resulting signed payload,
 receipt, root marker, private request, owner/cache records and locks. No signing,
 helper/login authorization or protection starts. Public release HTTPS acquisition,
-controller `finish-update`/resume and rollback/reboot recovery remain untested.
+controller `finish-update`/resume, desktop UI relaunch and rollback/reboot recovery
+remain untested by this harness.
 
 The workflow always retains **only** `candidate-provenance.json` and
 `upgrade-acceptance.json`, named with acceptance SHA/run ID, for 14 days. Provenance

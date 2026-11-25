@@ -49,6 +49,12 @@
 .ds-row.pane-protection-actions { border-bottom:0; }
 .pane-models-heading { margin-top:20px; padding-block:20px; border-top:1px solid var(--native-line); }
 .ds-row label small,.ds-hint { display:block; font-size:12px; color:var(--native-muted); margin:3px 0 6px; }
+.native-settings .update-section legend { padding:0; }
+.update-version { font-size:14px; font-variant-numeric:tabular-nums; }
+.update-version small { color:var(--native-muted); font:inherit; font-size:12px; margin-left:6px; }
+.update-status { font-size:14px; }
+.update-status .ds-hint { margin:2px 0 0; }
+.update-action { flex-shrink:0; }
 .ds-number { display:inline-flex; box-sizing:border-box; width:117px; height:28px; align-items:center; overflow:hidden; border:1px solid var(--native-line); border-radius:7px; background:var(--native-field,var(--native-bg)); }
 .native-settings .ds-number input[type=number],.native-settings .ds-number select { box-sizing:border-box; border:0; border-radius:0; margin:0; height:100%; background:transparent; }
 .native-settings .ds-number input[type=number] { min-width:0; flex:1; text-align:right; font-weight:600; }
@@ -108,7 +114,7 @@
 <script id="model">
 /* Pure synthetic controller. No system, storage, network or timer effects. */
 globalThis.PreviewModel = (() => {
- const defaults = () => ({display:true,displayMode:'on',lock:false,checks:'agent,internet',require:'all',forever:false,localInference:false,every:30,grace:900,retries:3,backoff:30,batteryProtection:true,inactivity:30,outageDelay:300,hotspotAttempts:3,batteryCutoff:20,fallback:true,ssid:'Sample iPhone',notifications:true,login:true});
+ const defaults = () => ({display:true,displayMode:'on',lock:false,checks:'agent,internet',require:'all',forever:false,localInference:false,every:30,grace:900,retries:3,backoff:30,batteryProtection:true,inactivity:30,outageDelay:300,hotspotAttempts:3,batteryCutoff:20,fallback:true,ssid:'Sample iPhone',notifications:true,login:true,autoUpdates:true});
  const create = () => ({clock:0,enabled:true,launched:true,installed:true,authorized:true,permission:true,notificationPermission:true,ac:true,battery:78,internet:true,networkReachable:true,internetFresh:true,lastVerifiedAt:0,asleep:false,connectivityPaused:false,pauseReason:null,probe:{active:false,endsAt:null,lastStartedAt:0,nextAt:defaults().every,started:0,completed:0,failed:0,cancelled:0,coalesced:0,reasons:[]},broadcast:false,joinSuccess:false,verifyInternet:false,crashed:false,crashCount:0,restartAt:null,conflict:false,settings:defaults(),running:defaults(),outage:null,lastAssociation:false,events:[{at:0,text:'Sample monitor started. Internet verified; protection active.'}],hold:true,releaseUntilWake:false});
  const log = (s,text) => {s.events.unshift({at:s.clock,text});s.events=s.events.slice(0,80)};
  const safe = s => !s.running.batteryProtection || s.ac || s.battery>=s.running.batteryCutoff;
@@ -209,7 +215,7 @@ function appCard(compact=false){
     <div class="ds-row pane-protection-actions"><button data-action="${S.enabled?'stop':'start'}">${S.enabled?'Stop protection':'Start protection'}</button><button data-action="${S.force?'end-force':'force'}">${S.force?'End force mode':'ϟ Force mode'}</button></div>
     <div class="ds-row pane-models-heading"><strong>Local models</strong><span>No runtime data</span></div>
     <div class="native-status"><div class="item"><span>Internet</span>${statusValue(net.label,net.label==='Connected')}</div>
-    <div class="item"><span>Agent</span>${statusValue(S.force?'Checks paused':S.pauseReason==='inactivity'?'No activity observed':'Active',!S.force&&S.pauseReason!=='inactivity')}</div>
+    ${!S.force&&!S.asleep&&S.pauseReason!=='inactivity'?`<div class="item" data-agent-row><span>Agent</span>${statusValue('Active',true)}</div>`:''}
     <div class="item"><span>Battery</span><span>${S.battery}%, ${S.ac?'Power adapter':'Battery'}</span></div></div>
     ${o?`<div class="recovery-banner"><strong>${o.phase==='exhausted'?'Fallback needs your help':o.phase==='active'?`Joining saved Wi-Fi · ${o.attempts}/${o.limit}`:o.phase==='skipped'?'Fallback skipped':o.phase==='disabled'?'Fallback disabled':'Waiting for fallback'}</strong><p>${recoveryText()}</p>${o.prompted&&S.notificationPermission&&S.running.notifications?'<button style="margin:8px 0" data-external="notification">View sample notification</button>':''}${!S.broadcast?'<p>On your phone: Personal Hotspot → Allow Others to Join. Nightr cannot turn it on remotely.</p>':''}<div class="row wrap"><button data-action="retry" ${canRetry?'':'disabled'}>Retry now</button>${o.phase==='exhausted'?'<button data-action="again" '+(M.canRecover(S)?'':'disabled')+'>Try again</button>':''}<button data-action="skip" ${['skipped','disabled'].includes(o.phase)?'disabled':''}>Skip fallback</button><button data-external="wifi">Wi-Fi settings…</button></div></div>`:''}<div class="native-footer"><button data-app-settings>Settings…</button><button data-stop-quit>Stop and Quit</button></div></div>`;
 }
@@ -256,8 +262,8 @@ function timingInput(key,raw) {
   if(error)error.textContent=U.settingsErrors[key]||'';
   exact?.setAttribute?.('aria-invalid',String(!!U.settingsErrors[key]));
 }
-function appSettingsCancel(){U.settings=false;U.settingsDraft=null;U.settingsErrors={};U.settingsChecksEdited=false;U.pendingCredentials=ssidDict();U.securityDraft=ssidDict();U.credentialSaveError='';render();document.querySelector('[data-app-settings]')?.focus();toast('Settings draft cancelled.');}
-function appSettingsSave(){U.settingsErrors=settingsErrors(U.settingsDraft);const first=Object.keys(U.settingsErrors)[0];if(first){U.settingsTab=Object.keys(settingsGroups).find(tab=>settingsGroups[tab].keys.includes(first));render();($('timing-value-'+first)||$('setting-app-'+first)||(first==='checks'?document.querySelector('[data-app-check]'):null))?.focus();return false;}const error=validate(U.settingsDraft);if(error){toast(error);return false;}if(Object.keys(U.pendingCredentials).length&&U.credentialSaveFailure){U.credentialSaveFailure=false;U.credentialSaveError='Password save failed. Nothing changed.';U.settingsErrors.credentials=U.credentialSaveError;U.settingsTab='connectivity';render();document.querySelector('[data-settings-save]')?.focus();return false;}for(const [name,meta] of Object.entries(U.pendingCredentials)){if(meta.security==='secured')U.credentialSaved[name]=true;else delete U.credentialSaved[name];}for(const [name,security] of Object.entries(U.securityDraft))U.securitySaved[name]=security;M.action(S,'save-app',U.settingsDraft);U.settings=false;U.settingsDraft=null;U.settingsErrors={};U.settingsChecksEdited=false;U.pendingCredentials=ssidDict();U.securityDraft=ssidDict();U.credentialSaveError='';render();document.querySelector('[data-app-settings]')?.focus();toast('Settings saved and applied live.');return true;}
+function appSettingsCancel({keepOpen=false}={}){U.settings=keepOpen;U.settingsDraft=keepOpen?clone(S.settings):null;U.settingsErrors={};U.settingsChecksEdited=false;U.pendingCredentials=ssidDict();U.securityDraft=ssidDict();U.credentialSaveError='';render();document.querySelector('[data-app-settings]')?.focus();toast('Settings draft cancelled.');}
+function appSettingsSave({keepOpen=false}={}){U.settingsErrors=settingsErrors(U.settingsDraft);const first=Object.keys(U.settingsErrors)[0];if(first){U.settingsTab=Object.keys(settingsGroups).find(tab=>settingsGroups[tab].keys.includes(first));render();($('timing-value-'+first)||$('setting-app-'+first)||(first==='checks'?document.querySelector('[data-app-check]'):null))?.focus();return false;}const error=validate(U.settingsDraft);if(error){toast(error);return false;}if(Object.keys(U.pendingCredentials).length&&U.credentialSaveFailure){U.credentialSaveFailure=false;U.credentialSaveError='Password save failed. Nothing changed.';U.settingsErrors.credentials=U.credentialSaveError;U.settingsTab='connectivity';render();document.querySelector('[data-settings-save]')?.focus();return false;}for(const [name,meta] of Object.entries(U.pendingCredentials)){if(meta.security==='secured')U.credentialSaved[name]=true;else delete U.credentialSaved[name];}for(const [name,security] of Object.entries(U.securityDraft))U.securitySaved[name]=security;M.action(S,'save-app',U.settingsDraft);U.settings=keepOpen;U.settingsDraft=keepOpen?clone(S.settings):null;U.settingsErrors={};U.settingsChecksEdited=false;U.pendingCredentials=ssidDict();U.securityDraft=ssidDict();U.credentialSaveError='';render();document.querySelector('[data-app-settings]')?.focus();toast('Settings saved and applied live.');return true;}
 function settingsControl(key,labelOverride){const [k,label,type,min,max]=settingDefs.find(x=>x[0]===key),draft=U.settingsDraft,disabled=settingDisabled(key),error=U.settingsErrors[key]||'',attrs=`id="setting-app-${key}" data-setting="app:${key}" ${disabled?'disabled':''} aria-invalid="${!!error}" aria-describedby="setting-error-${key}"`;return `<div class="setting-field-wrap"><label class="setting ${disabled?'inactive':''}"><span>${labelOverride||({notifications:'Hotspot notifications',login:'Launch at login'}[key])||label}</span>${type==='bool'?`<input type="checkbox" ${attrs} ${draft[key]?'checked':''}>`:type==='select'?`<select ${attrs}>${min.map(value=>`<option value="${value}" ${draft[key]===value?'selected':''}>${esc(fieldValue({[key]:value},key))}</option>`).join('')}</select>`:`<input type="${type}" ${attrs} value="${esc(draft[key])}" ${type==='number'?`step="1" min="${min}" max="${max}"`:''}>`}</label><div class="field-error" id="setting-error-${key}" aria-live="polite">${esc(error)}</div></div>`;}
 function appCheckToggle(check,checked){const selected=new Set(U.settingsDraft.checks.split(',').filter(Boolean));if(checked)selected.add(check);else selected.delete(check);appSettingsEdit('checks',['agent','internet'].filter(key=>selected.has(key)).join(','));}
 
@@ -273,6 +279,101 @@ function useAutomaticRules(){
 function protectionSettings(){const d=U.settingsDraft,error=U.settingsErrors.checks||'',checks=d.checks.split(','),disabled=d.forever||S.force?'disabled':'';const checkRows=[['agent','When an agent is active'],['internet','When internet is available']].map(([key,label])=>`<label class="awake-condition"><input id="setting-app-checks-${key}" type="checkbox" data-setting="app:checks" data-app-check="${key}" aria-describedby="setting-error-checks" aria-invalid="${!!error}" ${checks.includes(key)?'checked':''} ${disabled}><span>${label}</span></label>`).join('');const cutoffError=U.settingsErrors.batteryCutoff||'';return `<fieldset class="force-section"><legend class="force-control"><label for="protection-force">Force mode</label><input id="protection-force" type="checkbox" data-force-control ${S.force?'checked':''}></legend><small>${S.force?'Automatic checks are paused.':'Pause automatic checks until you turn it off.'}</small></fieldset><fieldset class="awake-main"><legend>Keep Mac awake</legend>${d.forever?'<div class="ds-row"><span>Stay awake until stopped</span><button data-use-rules>Use automatic rules</button></div>':''}<div class="automatic-conditions" id="automatic-conditions" ${d.forever?'hidden':''}>${checkRows}<div id="setting-error-checks" class="field-error" aria-live="polite">${esc(error)}</div><label class="awake-condition"><input id="activity-local-inference" type="checkbox" data-setting="app:localInference" ${d.localInference?'checked':''} ${disabled}><span>When a local model is generating</span></label></div></fieldset><hr class="awake-divider"><fieldset class="awake-detail"><legend>When lid closes</legend><label class="awake-display"><span>Display</span><select id="setting-app-displayMode" data-setting="app:displayMode">${[['off','Off'],['dim','Dim'],['on','On']].map(([value,label])=>`<option value="${value}" ${d.displayMode===value?'selected':''}>${label}</option>`).join('')}</select></label><label class="awake-lock"><span>Lock Mac</span><input id="setting-app-lock" type="checkbox" data-setting="app:lock" ${d.lock?'checked':''}></label></fieldset><hr class="awake-divider"><fieldset class="awake-detail"><legend>On battery</legend><div class="battery-inline"><label><input id="setting-app-batteryProtection" type="checkbox" data-setting="app:batteryProtection" ${d.batteryProtection?'checked':''}><span>Allow sleep below</span></label><input id="setting-app-batteryCutoff" type="number" data-setting="app:batteryCutoff" min="1" max="100" step="1" value="${esc(d.batteryCutoff)}" aria-label="Battery cutoff percent" aria-describedby="setting-error-batteryCutoff" aria-invalid="${!!cutoffError}" ${!d.batteryProtection?'disabled':''}><span aria-hidden="true">%</span></div><div id="setting-error-batteryCutoff" class="field-error" aria-live="polite">${esc(cutoffError)}</div></fieldset>`;}
 
 function settingsSection(title,keys,help=''){return `<fieldset class="settings-subgroup"><legend>${title}</legend>${keys.map(key=>settingsControl(key)).join('')}${help?`<p class="settings-help">${help}</p>`:''}</fieldset>`;}
+
+const updateSample={version:'0.1.0',build:'8a41c2d',nextVersion:'0.1.1',nextBuild:'b71e506',phase:'idle',result:'available',check:0};
+const updateStatuses={
+  idle:'Not checked yet', checking:'Checking…', downloading:'Downloading…',
+  ready:'Update Ready', current:'Up to date', offline:'Couldn’t connect',
+  unpublished:'No published release', unverified:'Couldn’t verify update'
+};
+
+function generalSettings(){
+  const {version,build,phase}=updateSample;
+  const ready=phase==='ready', busy=['checking','downloading'].includes(phase);
+  return `${settingsSection('Startup & notifications',settingsGroups.general.keys)}
+    <fieldset class="update-section"><legend>Updates</legend>
+      <div class="ds-row"><span>Version</span><span class="update-version">${version}<small>Build ${build}</small></span></div>
+      <label class="setting"><span>Automatically download updates</span><input type="checkbox" id="setting-app-autoUpdates" data-setting="app:autoUpdates" ${U.settingsDraft.autoUpdates?'checked':''}></label>
+      <div class="ds-row"><div class="update-status" role="status">${sampleUpdateStatus()}</div>
+      <button class="update-action ${ready?'primary':''}" data-update-action="${ready?'install':'check'}" ${busy?'disabled':''}>${ready?'Install Update…':'Check for Updates'}</button></div>
+    </fieldset>`;
+}
+
+function sampleUpdateStatus(){
+  const {nextVersion,phase}=updateSample;
+  const ready=phase==='ready';
+  return `${statusValue(updateStatuses[phase],ready||phase==='current')}${ready?`<small class="ds-hint">Version ${nextVersion}</small>`:''}`;
+}
+
+function renderUpdate(focusAction=false){
+  const button=document.querySelector('[data-update-action]');
+  if(!button)return;
+  const {version,build,phase}=updateSample;
+  const ready=phase==='ready';
+  document.querySelector('.update-version').innerHTML=`${version}<small>Build ${build}</small>`;
+  document.querySelector('.update-status').innerHTML=sampleUpdateStatus();
+  button.dataset.updateAction=ready?'install':'check';
+  button.textContent=ready?'Install Update…':'Check for Updates';
+  button.classList.toggle('primary',ready);
+  button.disabled=['checking','downloading'].includes(phase);
+  if(focusAction && document.activeElement===document.body)button.focus();
+}
+
+function updateFixture(result){
+  if(!['available','current','offline','unpublished','unverified'].includes(result))return;
+  updateSample.check+=1;
+  updateSample.result=result;
+  updateSample.phase='idle';
+  renderUpdate();
+}
+
+async function checkForSampleUpdate({background=false}={}){
+  if((background && !S.settings.autoUpdates) || ['checking','downloading','ready'].includes(updateSample.phase))return;
+  const check=++updateSample.check;
+  const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  updateSample.phase='checking';
+  renderUpdate();
+  await pause(240);
+  if(check!==updateSample.check)return;
+  if(updateSample.result==='available' && updateSample.version!==updateSample.nextVersion){
+    updateSample.phase='downloading';
+    renderUpdate();
+    await pause(480);
+    if(check!==updateSample.check)return;
+    updateSample.phase='ready';
+  } else {
+    updateSample.phase=updateSample.result==='available'?'current':updateSample.result;
+  }
+  renderUpdate(!background);
+}
+
+function installSampleUpdate(){
+  const authorize=()=>modal(`Install Nightr ${updateSample.nextVersion}?`,
+    '<p>Nightr will reopen after installation. Terminal will ask for administrator approval.</p>', [
+      ['Cancel',closeModal],
+      ['Simulate Install',()=>{
+        closeModal();
+        updateSample.version=updateSample.nextVersion;
+        updateSample.build=updateSample.nextBuild;
+        updateSample.phase='current';
+        renderUpdate(true);
+      },'primary']
+    ]);
+  const dirty=Object.keys(S.settings).some(key=>S.settings[key]!==U.settingsDraft[key]) ||
+    Object.keys(U.pendingCredentials).length || Object.keys(U.securityDraft).length;
+  if(!dirty){authorize();return;}
+  modal('Save changes before updating?','<p>Updating will close Settings.</p>',[
+    ['Keep Editing',closeModal],
+    ['Discard and Continue',()=>{closeModal();appSettingsCancel({keepOpen:true});authorize();}],
+    ['Save and Continue',()=>{closeModal();if(appSettingsSave({keepOpen:true}))authorize();},'primary']
+  ]);
+}
+
+function bindUpdateAction(){
+  const button=document.querySelector('[data-update-action]');
+  if(button)button.onclick=()=>button.dataset.updateAction==='install'?installSampleUpdate():checkForSampleUpdate();
+}
+
 const advancedCopy={every:{label:'Check interval',help:'How often Nightr checks your Protection rules.'},grace:{label:'Initial wait',help:'Time to stay awake after a rule stops passing.'},retries:{label:'Number of rechecks',help:'Set to zero to allow sleep after the wait.'},backoff:{label:'First retry delay',help:'Each retry waits twice as long, up to 5 min.'}};
 function durationHint(value){if(!Number.isInteger(value)||value<60)return '';const hours=Math.floor(value/3600),minutes=Math.floor((value%3600)/60),seconds=value%60;return [[hours,'hour'],[minutes,'minute'],[seconds,'second']].filter(([n])=>n).map(([n,label])=>n+' '+label+(n===1?'':'s')).join(' ');}
 function advancedControl(key) {
@@ -386,8 +487,8 @@ function connectivitySettings() {
     <div class="field-error" id="timing-error-hotspotAttempts">${esc(U.settingsErrors.hotspotAttempts||'')}</div></fieldset></div>`;
 }
 
-function nativeSettings(){const group=settingsGroups[U.settingsTab];const body=U.settingsTab==='protection'?protectionSettings():U.settingsTab==='connectivity'?connectivitySettings():U.settingsTab==='advanced'?advancedSettings():settingsSection('Startup & notifications',group.keys);return `<div class="native-settings-overlay"><section class="native-settings ${U.theme==='light'?'native-light':''}" role="dialog" aria-modal="true" aria-label="Nightr Settings"><header class="native-settings-header"><div class="native-settings-title"><span class="native-traffic"><button data-settings-cancel aria-label="Close Settings"></button><i></i><i></i></span><span>Nightr Settings</span><span style="width:48px"></span></div><nav class="native-settings-tabs" role="tablist" aria-label="Settings sections">${Object.entries(settingsGroups).map(([id,g])=>`<button role="tab" id="settings-tab-${id}" aria-label="${g.name} settings" aria-controls="settings-panel" aria-selected="${U.settingsTab===id}" class="${U.settingsTab===id?'active':''}" data-settings-tab="${id}"><span class="native-tab-icon" aria-hidden="true">${g.glyph}</span>${g.name}</button>`).join('')}</nav></header><div class="native-settings-content" id="settings-panel" role="tabpanel" aria-labelledby="settings-tab-${U.settingsTab}"><div class="settings-error-summary" id="settings-error-summary" role="status">${U.credentialSaveError|| (Object.keys(U.settingsErrors).length?'Check the marked fields before saving.':'')}</div>${body}</div><footer class="native-settings-footer"><button data-settings-defaults>Reset</button><div class="row"><button data-settings-cancel>Cancel</button><button class="primary" data-settings-save>${U.credentialSaveError?'Retry Save':'Save'}</button></div></footer></section></div>`;}
-function settingsHash(hash){const match=/^#settings\/(protection|connectivity|advanced)$/.exec(hash);if(!match)return false;appSettingsOpen(match[1]);return true;}
+function nativeSettings(){const body=U.settingsTab==='protection'?protectionSettings():U.settingsTab==='connectivity'?connectivitySettings():U.settingsTab==='advanced'?advancedSettings():generalSettings();return `<div class="native-settings-overlay"><section class="native-settings ${U.theme==='light'?'native-light':''}" role="dialog" aria-modal="true" aria-label="Nightr Settings"><header class="native-settings-header"><div class="native-settings-title"><span class="native-traffic"><button data-settings-cancel aria-label="Close Settings"></button><i></i><i></i></span><span>Nightr Settings</span><span style="width:48px"></span></div><nav class="native-settings-tabs" role="tablist" aria-label="Settings sections">${Object.entries(settingsGroups).map(([id,g])=>`<button role="tab" id="settings-tab-${id}" aria-label="${g.name} settings" aria-controls="settings-panel" aria-selected="${U.settingsTab===id}" class="${U.settingsTab===id?'active':''}" data-settings-tab="${id}"><span class="native-tab-icon" aria-hidden="true">${g.glyph}</span>${g.name}</button>`).join('')}</nav></header><div class="native-settings-content" id="settings-panel" role="tabpanel" aria-labelledby="settings-tab-${U.settingsTab}"><div class="settings-error-summary" id="settings-error-summary" role="status">${U.credentialSaveError|| (Object.keys(U.settingsErrors).length?'Check the marked fields before saving.':'')}</div>${body}</div><footer class="native-settings-footer"><button data-settings-defaults>Reset</button><div class="row"><button data-settings-cancel>Cancel</button><button class="primary" data-settings-save>${U.credentialSaveError?'Retry Save':'Save'}</button></div></footer></section></div>`;}
+function settingsHash(hash){const match=/^#settings\/(general|protection|connectivity|advanced)$/.exec(hash);if(!match)return false;appSettingsOpen(match[1]);return true;}
 
 const scenarios=[['lost','Internet lost','Observed outage starts the five-minute fallback delay.'],['broadcast','Hotspot available','Phone broadcasts; next join can verify internet.'],['not-broadcast','Not broadcasting','Persistent phone guidance; no remote phone control.'],['join-no-internet','Joined, no internet','Association succeeds; recovery still fails verification.'],['battery','Low battery','Pause and close attempts immediately.'],['plug','Plug in AC','Resume only if enabled intent is preserved.'],['sleep','System sleep','Release owned hold; no promise through sleep.'],['wake','Normal wake','Refresh samples; explicit Stop remains stopped.'],['login','Login','Resume enabled intent without a second owner.'],['crash','Monitor crash','Release hold, then bounded 15s sample restart.'],['notification','Notification denied','Persistent app and CLI guidance stays available.'],['permission','Permission denied','Repair required; no blind retries.'],['missing','Missing install','Start fails visibly; no real installer.'],['conflict','Conflicting run','Reject incompatible second owner.'],['restore','Network returns','Path is available; a bounded check must verify internet.'],['repair','Repair sample setup','Reset synthetic installation / permission errors.'],['connectivity-pause','Connectivity pause','Only verified internet return can resume this pause while awake.'],['idle-release','Inactivity release','Network events cannot rearm this; normal wake is required.']];
 function clockControls(){return `<div class="clock"><span class="label">Sample clock</span><span class="clock-readout">${fmt(S.clock)}</span><button class="small" data-advance="10">+10s</button><button class="small" data-advance="15">+15s</button><button class="small" data-advance="30">+30s</button><button class="small" data-advance="60">+1m</button><button class="small" data-advance="300">+5m</button></div>`;}
@@ -446,6 +547,7 @@ function railAction(action){const [type,arg]=action.split(':');if(type==='nightr
 function parseRunOptions(words){const o={},toggles={'--display-on':['display',true],'--display-off':['display',false],'--no-display':['display',false],'-D':['display',false],'--no-dim':['display',false],'--no-lock':['lock',false],'-L':['lock',false],'--forever':['forever',true],'-f':['forever',true],'-C':['forever',true],'--no-checks':['forever',true],'--no-forever':['forever',false],'-F':['forever',false]};const numeric={'--every':'every','-e':'every','--grace':'grace','-g':'grace','--retries':'retries','-r':'retries','--backoff':'backoff','-b':'backoff','--battery':'batteryCutoff','--hotspot-attempts':'hotspotAttempts'};let background=false,plain=false,json=false,dim=false;for(let i=0;i<words.length;i++){let token=words[i],eq=token.indexOf('='),flag=eq>=0?token.slice(0,eq):token,value=eq>=0?token.slice(eq+1):null;if(['--background','--plain','--json'].includes(flag)){if(flag==='--background')background=true;if(flag==='--plain')plain=true;if(flag==='--json')json=true;continue;}if(toggles[flag]){const[k,v]=toggles[flag];o[k]=v;if(k==='display'){o.displayMode=v?'on':'off';dim=false;}continue;}if(['--dim','-m','-dim'].includes(flag)){dim=true;continue;}if(['--undim','-M'].includes(flag)){dim=false;o.displayMode=o.display===false?'off':'on';continue;}const modes={'--display':['off','on','dim'],'-d':['off','on','dim'],'--lock':['on','off'],'-l':['on','off'],'--hotspot':['on','off'],'--checks':['all','agent','internet','none'],'-c':['all','agent','internet','none']};if(modes[flag]||numeric[flag]||flag==='--require'){if(value===null&&words[i+1]&&!words[i+1].startsWith('-'))value=words[++i];if(value===null){if(flag==='-d')value='on';else if(flag==='-l'||flag==='--lock')value='on';else if(flag==='-c'||flag==='--checks')value='all';else return {error:flag+' needs a value. No state changed.'};}if(modes[flag]&&!modes[flag].includes(value))return{error:flag+' takes '+modes[flag].join(', ')+'. No state changed.'};if(flag==='--display'||flag==='-d'){o.display=value!=='off';o.displayMode=value;dim=false;}else if(flag==='--lock'||flag==='-l')o.lock=value==='on';else if(flag==='--hotspot')o.fallback=value==='on';else if(flag==='--checks'||flag==='-c'){o.checks=value==='all'?'agent,internet':value==='none'?'':value;o.forever=false;}else if(flag==='--require'){if(!['all','none'].includes(value)&&!(/^[1-9]\d*$/.test(value)))return{error:'--require takes all, none, or a positive count. No state changed.'};o.require=value;}else{const n=Number(value),key=numeric[flag];if(!Number.isFinite(n)||n<0||!Number.isInteger(n)||(key==='batteryCutoff'&&(n<1||n>100))||(key==='retries'&&n>10)||(key==='hotspotAttempts'&&(n<1||n>10)))return{error:flag+' has an invalid numeric value. No state changed.'};o[key]=n;}continue;}if(['--agent','-a','--no-agent','-A','--internet','-i','--no-internet','-I'].includes(flag)){const checks=new Set((o.checks??S.settings.checks).split(',').filter(Boolean));const key=['--agent','-a','--no-agent','-A'].includes(flag)?'agent':'internet';if(['--no-agent','-A','--no-internet','-I'].includes(flag))checks.delete(key);else checks.add(key);o.checks=[...checks].sort().join(',');continue;}return{error:'Unsupported sample option '+token+'. Try nightr --help. No state changed.'};}if(dim){o.display=true;o.displayMode='dim';}if(o.require&&!['all','none'].includes(o.require)&&Number(o.require)>(o.checks??S.settings.checks).split(',').filter(Boolean).length)return{error:'--require exceeds enabled checks. No state changed.'};return{overrides:o,background,plain,json};}
 function runCommand(raw){const cmd=raw.trim();if(!cmd)return;let out='';U.cliScreen=null;U.afterGate=false;let words=cmd.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)||[];words=words.map(w=>w.replace(/^['"]|['"]$/g,''));const executable=words.shift();if(executable==='clear'){U.cliEntries=[];render();return;}if(executable==='t'){if(words[0]==='config'&&words.length===1){initParent();U.cliScreen='parent';U.cliFocus=U.parentFocus;render();$('terminal-body')?.focus();return;}out='Sample shell supports t config. No real t command ran.';}else if(['nightr','nosleep'].includes(executable)){let verb=['start','stop','status','config'].includes(words[0])?words.shift():'';if(words.includes('--help')||words.includes('-h'))out=`${executable} [start|stop|status|config] [options] [SAMPLE]\n\nstart / stop         shared single-monitor control [proposed]\nstatus [--json]      read-only, no picker [proposed]\nconfig [--show]      staged next-run defaults / read-only JSON\n--hotspot-attempts N  1–10 total joins per outage [proposed]\n-d, --display MODE   off | on | dim\n-l, --lock MODE      on | off\n-c, --checks MODE    all | agent | internet | none\n--require VALUE     all | none | N passing checks\n--hotspot MODE      on | off\n-e, --every SECS    sample polling interval\n-g, --grace SECS    sample check grace\n-r, --retries N     legacy check retry limit (not hotspot budget)\n-b, --backoff SECS  legacy check retry delay\n--forever / --no-forever\n--agent / --no-agent / --internet / --no-internet\n--background / --plain / --battery PERCENT [proposed]\n\nLegacy aliases: -d, -D, -l, -L, --dim, --display-on.\nAll choices affect sample running snapshots only.\nClock events model the proposed controller, not native OS behavior.`;else if(words.includes('--version'))out='nightr v0.1.0-design [SAMPLE · not an installed release]';else if(verb==='config'||words.includes('--config')){if(words.includes('--show'))out=JSON.stringify({sample:true,next_run:S.settings,active_run:S.enabled?S.running:null},null,2);else if(words.includes('--edit')){const d=clone(S.settings);modal('Simulated Nightr config editor','<p>Edit synthetic JSON. Save changes next-run defaults only; no editor or file is opened.</p><textarea id="json-editor" rows="13" style="width:100%;font:11px var(--mono);margin-top:15px">'+esc(JSON.stringify(d,null,2))+'</textarea>',[['Cancel',closeModal],['Save next-run sample',()=>{try{const next={...S.settings,...JSON.parse($('json-editor').value)},error=validate(next);if(error)throw Error(error);M.action(S,'save-cli',next);closeModal();render();toast('Saved sample next-run defaults only.');}catch(e){toast('Invalid sample settings: '+e.message);}},'primary']]);return;}else{U.cliDraft=clone(S.settings);U.returnScreen=null;U.cliScreen='nightr';render();$('terminal-body')?.focus();return;}}else if(verb==='status'||words.includes('--status'))out=words.includes('--json')?JSON.stringify(M.snapshot(S),null,2):statusText();else if(verb==='stop'){M.action(S,'stop');out=statusText();}else if(verb===''||verb==='start'){const p=parseRunOptions(words);if(p.error)out=p.error;else{M.action(S,'start',p.overrides);if(p.plain)U.plain=true;if(!p.background&&!p.json&&M.status(S)!=='Error'){U.cliScreen='live';render();$('terminal-body')?.focus();return;}out=p.json?JSON.stringify(M.snapshot(S),null,2):statusText();}}else out='Unknown sample command. Try nightr --help.';}else out='This is a simulated shell. Try nightr, nosleep, nightr status --json, nightr config, or t config. No command ran.';U.cliEntries.push({cmd,out});render();$('command-input')?.focus();}
 function bind(){
+  bindUpdateAction();
   document.querySelectorAll('[data-count-step]').forEach(button=>button.onclick=()=>{
     const input=$(button.getAttribute('aria-controls'));
     if(button.dataset.countStep==='up') input.stepUp(); else input.stepDown();
@@ -489,12 +591,12 @@ if (window.parent && window.parent !== window && new URLSearchParams(window.loca
       if(local) local.onchange=()=>{U.settingsDraft.localInference=local.checked;};
       syncSettingsDependencies();
     };
-    appSettingsSave=function(){
-      if(!originalSave()) return false;
-      host.saved(clone(S.settings));
+    appSettingsSave=function(options={}){
+      if(!originalSave(options)) return false;
+      host.saved(clone(S.settings),options.keepOpen);
       return true;
     };
-    appSettingsCancel=function(){originalCancel();host.cancelled();};
+    appSettingsCancel=function(options={}){originalCancel(options);if(!options.keepOpen)host.cancelled();};
     setForceFromSettings=function(enabled){
       const observation=host.setForceMode(enabled);
       S.force=observation.force;S.enabled=observation.enabled;S.hold=observation.hold;
@@ -515,6 +617,8 @@ if (window.parent && window.parent !== window && new URLSearchParams(window.loca
       },
       cancel(){ if(U.networkChooser)networkChooserClose();appSettingsCancel(); },
       theme(theme){U.theme=theme;render();},
+      updateFixture,
+      backgroundUpdate(){return checkForSampleUpdate({background:true});},
       defaults(){return {...M.defaults(),localInference:false};}
     };
     U.settings=false;render();

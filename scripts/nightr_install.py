@@ -21,7 +21,8 @@ import stat
 import subprocess
 import sys
 import tempfile
-from urllib.error import HTTPError
+import time
+from urllib.error import HTTPError, URLError
 import urllib.request
 import uuid
 
@@ -38,6 +39,9 @@ INSTALL_GUARD = Path("/Library/PrivilegedHelperTools/ai.nightr.installguard")
 class InstallError(RuntimeError):
     pass
 
+class NoPublicRelease(InstallError):
+    pass
+
 class HTTPSOnly(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not newurl.startswith("https://"):
@@ -48,10 +52,12 @@ def download(url, target, maximum):
     if not url.startswith("https://"):
         raise InstallError("Release downloads require HTTPS")
     request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "Nightr/1"})
+    deadline = time.monotonic() + 900
     with urllib.request.build_opener(HTTPSOnly).open(request, timeout=30) as response, target.open("wb") as output:
         count = 0
         while True:
-            block = response.read(1024 * 1024)
+            if time.monotonic() >= deadline: raise InstallError("Release download timed out")
+            block = response.read1(1024 * 1024)
             if not block:
                 break
             count += len(block)
@@ -155,7 +161,7 @@ def global_installation_lock(*, required=False, path=None):
     finally: os.close(fd)
 
 @contextlib.contextmanager
-def installation_lock():
+def user_package_lock():
     directory = state_directory()
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     if directory.is_symlink() or directory.stat().st_uid != os.getuid():
@@ -167,10 +173,14 @@ def installation_lock():
             raise InstallError("Unsafe package lock")
         try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error: raise InstallError("Another Nightr installation or update is running") from error
-        with global_installation_lock(required=APP.exists()) as global_locked:
-            assert_no_marker()
-            yield global_locked
+        yield
     finally: os.close(fd)
+
+@contextlib.contextmanager
+def installation_lock():
+    with user_package_lock(), global_installation_lock(required=APP.exists()) as global_locked:
+        assert_no_marker()
+        yield global_locked
 
 def validate_manifest(data):
     if not isinstance(data, dict): raise InstallError("Release manifest must be an object")
@@ -199,11 +209,11 @@ def latest_manifest(directory):
         download(API, release_file, 1024 * 1024)
     except HTTPError as error:
         if error.code != 404: raise
-        raise InstallError("No public signed Nightr release is available yet") from error
+        raise NoPublicRelease("No public signed Nightr release is available yet") from error
     release = json.loads(release_file.read_text())
     asset = next((a for a in release.get("assets", []) if a.get("name") == "nightr-release.json"), None)
     if release.get("draft") or release.get("prerelease") or not asset:
-        raise InstallError("No public signed Nightr release is available yet")
+        raise NoPublicRelease("No public signed Nightr release is available yet")
     expected = f"https://github.com/{REPOSITORY}/releases/download/{release.get('tag_name')}/nightr-release.json"
     if asset.get("browser_download_url") != expected:
         raise InstallError("Unexpected release manifest URL")
@@ -568,7 +578,7 @@ def finish_install_transaction(transaction, team, *, operation="finish"):
         with contextlib.suppress(FileNotFoundError): (state_directory() / "install-request.json").unlink()
 
 
-def perform(mode, manifest, directory, *, global_lock_held=True, resume_after_unlock=None, homebrew_only=False):
+def perform(mode, manifest, directory, *, global_lock_held=True, resume_after_unlock=None, homebrew_only=False, staged=None):
     post = resume_after_unlock if resume_after_unlock is not None else []
     record = read_record()
     exists = APP.exists() or APP.is_symlink()
@@ -603,7 +613,7 @@ def perform(mode, manifest, directory, *, global_lock_held=True, resume_after_un
         if record["teamID"] != manifest["teamID"]: raise InstallError("Release signing team changed; installation was preserved")
         if version_key(record["version"]) >= version_key(manifest["version"]): return record
     check_owned_link()
-    dmg = download_verified_package(manifest, directory)
+    dmg = staged if staged is not None else download_verified_package(manifest, directory)
     transaction = uuid.uuid4()
     managed = global_lock_held
     with mounted_dmg(dmg, directory) as mount:
@@ -673,17 +683,165 @@ def _sha256(path):
         for block in iter(lambda: source.read(1024 * 1024), b""): digest.update(block)
     return digest.hexdigest()
 
+def desktop_team():
+    with (APP / "Contents/Info.plist").open("rb") as source:
+        team = plistlib.load(source).get("NightrTeamID", "")
+    if not re.fullmatch(r"[A-Z0-9]{10}", team):
+        raise InstallError("The installed app has no release signing team")
+    return team
+
+
+def desktop_owner(team):
+    installed = verify_installed_receipt(team)
+    record = read_record()
+    if record and record["teamID"] != team:
+        raise InstallError("Installation owner and signing team differ")
+    owned_by_brew = homebrew_receipt(known_direct=bool(record and record["owner"] == "direct"))
+    owner = "homebrew" if owned_by_brew else "direct"
+    if record and record["owner"] != owner:
+        raise InstallError("Installation ownership has changed; repair update setup")
+    if owned_by_brew:
+        brew = shutil.which("brew")
+        if not brew: raise InstallError("Homebrew is unavailable")
+        verify_homebrew_receipt(str(Path(brew).resolve()), installed)
+    return installed, owner
+
+
+def pending_directory():
+    directory = state_directory() / "pending-update"
+    directory.mkdir(mode=0o700, exist_ok=True)
+    info = directory.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise InstallError("Unsafe pending update directory")
+    return directory
+
+
+def read_pending():
+    path = pending_directory() / "manifest.json"
+    try:
+        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as source:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1 or info.st_mode & 0o077 or info.st_size > 16384:
+                raise InstallError("Unsafe pending update manifest")
+            return validate_manifest(json.loads(source.read(16385)))
+    except FileNotFoundError:
+        return None
+
+
+def verify_desktop_image(image, manifest, directory):
+    info = image.stat()
+    asset = manifest["asset"]
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_size != asset["size"] or _sha256(image) != asset["sha256"]:
+        raise InstallError("Pending Nightr package checksum differs from the release")
+    with mounted_dmg(image, directory) as mount:
+        verify_app(mount / "Nightr.app", manifest["teamID"], manifest["version"])
+        verify_package(mount / "Nightr.pkg", manifest["teamID"])
+
+
+def desktop_image(manifest, owner, directory, *, allow_download=False):
+    if owner == "homebrew":
+        brew = verified_homebrew_contract(manifest)
+        if allow_download:
+            run_passthrough([brew, "fetch", "--cask", HOMEBREW_CASK], timeout=900, env_updates=HOMEBREW_POLICY)
+        location = run([brew, "--cache", "--cask", HOMEBREW_CASK], env_updates=HOMEBREW_POLICY, stdout_only=True).strip()
+        image = Path(location)
+        if not image.is_absolute() or "\n" in location:
+            raise InstallError("Homebrew returned an invalid cache path")
+        image = image.resolve(strict=True)  # Homebrew may use a cache symlink.
+    elif allow_download:
+        image = download_verified_package(manifest, directory)
+    else:
+        image = pending_directory() / "Nightr.dmg"
+        if image.is_symlink(): raise InstallError("Unsafe pending package")
+    verify_desktop_image(image, manifest, directory)
+    return image
+
+
+def write_pending(manifest, direct_image):
+    directory = pending_directory()
+    # Staging's temporary directory lives in pending_directory so replacement
+    # is atomic even if the user's home and system temp are on different disks.
+    if direct_image is not None: os.replace(direct_image, directory / "Nightr.dmg")
+    else: (directory / "Nightr.dmg").unlink(missing_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", dir=directory, delete=False) as temporary:
+        path = Path(temporary.name)
+        try:
+            json.dump(manifest, temporary); temporary.flush(); os.fsync(temporary.fileno())
+            os.replace(path, directory / "manifest.json")
+        finally:
+            path.unlink(missing_ok=True)
+
+
+def desktop_operation(action, directory, expected_version):
+    team = desktop_team()
+    pending = read_pending() if action == "desktop-cached" else None
+    if action == "desktop-cached" and pending is None:
+        return {"state": "idle"}
+    manifest = pending if pending is not None else latest_manifest(directory)
+    if team != manifest["teamID"]:
+        raise InstallError("Release signing team changed")
+    if action == "desktop-check":
+        installed = verify_installed_receipt(team)
+        if version_key(manifest["version"]) <= version_key(installed): return {"state": "current"}
+        return {"state": "available", "version": manifest["version"]}
+    installed, owner = desktop_owner(team)
+    version = manifest["version"]
+    if version_key(version) <= version_key(installed): return {"state": "current"}
+    if action == "desktop-stage":
+        if version != expected_version:
+            raise InstallError("The available release changed. Check for updates again.")
+        if read_pending() == manifest:
+            try:
+                desktop_image(manifest, owner, directory)
+                return {"state": "ready", "version": version}
+            except (InstallError, OSError):
+                pass  # Re-fetch a removed or damaged cache entry.
+        with tempfile.TemporaryDirectory(prefix="stage-", dir=pending_directory()) as staging:
+            image = desktop_image(manifest, owner, Path(staging), allow_download=True)
+            write_pending(manifest, image if owner == "direct" else None)
+    else:
+        desktop_image(manifest, owner, directory)
+    return {"state": "ready", "version": version}
+
+
+def desktop_update(manifest, directory, global_locked, post):
+    if not sys.stdin.isatty() or os.geteuid() == 0:
+        raise InstallError("Open Nightr Settings to install the update in your own Terminal session")
+    if read_pending() != manifest or desktop_team() != manifest["teamID"]:
+        raise InstallError("The pending package no longer matches the current release. Check for updates again.")
+    installed, owner = desktop_owner(manifest["teamID"])
+    if version_key(installed) >= version_key(manifest["version"]):
+        raise InstallError("This update is already installed. Open the installed Nightr app.")
+    image = desktop_image(manifest, owner, directory)
+    # Prompt while protection is still running. Cancellation never quiesces it.
+    run_passthrough(["/usr/bin/sudo", "-v"], timeout=180)
+    result = perform("update", manifest, directory, global_lock_held=global_locked,
+                     resume_after_unlock=post, staged=image if owner == "direct" else None)
+    with contextlib.suppress(OSError, InstallError):
+        pending = pending_directory()
+        (pending / "manifest.json").unlink(missing_ok=True)
+        (pending / "Nightr.dmg").unlink(missing_ok=True)
+    return result
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["install", "update", "check", "adopt-homebrew", "adopt-direct"])
+    parser.add_argument("action", choices=["install", "update", "check", "adopt-homebrew", "adopt-direct", "desktop-check", "desktop-stage", "desktop-cached", "desktop-update"])
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--homebrew-only", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--expected-version", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     post = []
     try:
         if args.homebrew_only and args.action != "install":
             raise InstallError("--homebrew-only requires a fresh install")
         if sys.platform != "darwin": raise InstallError("Nightr packages support macOS 13 or later")
+        if args.action in ("desktop-check", "desktop-stage", "desktop-cached"):
+            lock = contextlib.nullcontext() if args.action == "desktop-check" else user_package_lock()
+            with lock, tempfile.TemporaryDirectory(prefix="nightr-desktop-update-") as temporary:
+                result = desktop_operation(args.action, Path(temporary), args.expected_version)
+            print(json.dumps(result))
+            return 0
         lock = contextlib.nullcontext(False) if args.action == "check" else installation_lock()
         with lock as global_locked, tempfile.TemporaryDirectory(prefix="nightr-package-") as temporary:
             directory = Path(temporary)
@@ -699,6 +857,8 @@ def main(argv=None):
             elif args.action == "adopt-homebrew":
                 brew = verified_homebrew_contract(manifest)
                 result = adopt_homebrew(manifest, record, brew)
+            elif args.action == "desktop-update":
+                result = desktop_update(manifest, directory, global_locked, post)
             else:
                 result = perform(args.action, manifest, directory, global_lock_held=global_locked,
                                  resume_after_unlock=post, homebrew_only=args.homebrew_only)
@@ -714,7 +874,11 @@ def main(argv=None):
         if post:
             try: coordinate("finish-update")
             except Exception as resume_error: error = InstallError(f"{error}; protection could not resume: {resume_error}")
-        if args.json: print(json.dumps({"error": str(error)}, sort_keys=True))
+        if args.json:
+            result = {"error": str(error)}
+            if args.action.startswith("desktop-"):
+                result["state"] = "unpublished" if isinstance(error, NoPublicRelease) else "offline" if isinstance(error, (URLError, TimeoutError)) else "error"
+            print(json.dumps(result, sort_keys=True))
         else: print(f"nightr: {error}", file=sys.stderr)
         return 1
 

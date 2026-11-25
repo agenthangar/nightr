@@ -172,8 +172,10 @@ def fetch(args, provenance):
     source = sources[0]
     subprocess.run(['git', 'merge-base', '--is-ancestor', source, workflow_sha], check=True, timeout=30, capture_output=True)
     provenance.update(sourceSHA=source, workflowSHA=workflow_sha, teamID=args.team_id, repository=REPOSITORY, workflow=WORKFLOW)
-    provenance['baseline'] = fetch_one(args.baseline_run_id, '0.0.0', source, args.team_id, args.output / 'baseline')
-    provenance['final'] = fetch_one(args.final_run_id, '0.1.0', source, args.team_id, args.output / 'final')
+    if check_upgrade.checks.installer.version_key(args.baseline_version) >= check_upgrade.checks.installer.version_key(args.final_version):
+        raise RuntimeError('Final candidate must be newer than baseline')
+    provenance['baseline'] = fetch_one(args.baseline_run_id, args.baseline_version, source, args.team_id, args.output / 'baseline')
+    provenance['final'] = fetch_one(args.final_run_id, args.final_version, source, args.team_id, args.output / 'final')
     provenance['status'] = 'passed_candidate_acquisition'
 
 
@@ -181,6 +183,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline-run-id', required=True)
     parser.add_argument('--final-run-id', required=True)
+    parser.add_argument('--baseline-version', default='0.0.0')
+    parser.add_argument('--final-version', default='0.1.0')
     parser.add_argument('--team-id', required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
