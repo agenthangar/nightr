@@ -8,9 +8,17 @@ import NightrPlatform
 
 struct SettingsHost: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var updater: DesktopUpdater
     let close: () -> Void
+    init(model: AppModel, close: @escaping () -> Void) {
+        self.model = model
+        self.updater = model.updater
+        self.close = close
+    }
     var body: some View {
         SettingsView(section: $model.presentation.section, status: model.status, store: model.store,
+                     updates: updater.presentation, automaticUpdates: updater.automatic,
+                     saveAutomaticUpdates: updater.saveAutomatic, checkForUpdates: updater.check, installUpdate: updater.install,
                      setForceMode: { model.command($0 ? .beginForce : .endForce) }, apply: { try await model.applySettingsForSave($0) }, close: close)
     }
 }
@@ -23,6 +31,11 @@ struct SettingsView: View {
     let apply: (NightrCore.Settings) async throws -> Void
     let close: () -> Void
     let setForceMode: (Bool) -> Void
+    let updates: DesktopUpdatePresentation
+    let automaticUpdates: Bool
+    let saveAutomaticUpdates: (Bool) -> Void
+    let checkForUpdates: () -> Void
+    let installUpdate: () -> Void
     @State private var draft = NightrCore.Settings()
     @State private var original = NightrCore.Settings()
     @State private var expected: Data?
@@ -38,16 +51,26 @@ struct SettingsView: View {
     @State private var pendingLoginRemoval = false
     @State private var savedApprovalNotice = false
     @State private var notificationStatus: UNAuthorizationStatus?
+    @State private var automaticUpdatesDraft: Bool
+    @State private var saveBeforeUpdate = false
+    @State private var confirmUpdate = false
+    @State private var updateTargetVersion: String?
     @Environment(\.controlActiveState) private var activeState
     @StateObject private var numbers = NumericDrafts()
     @FocusState private var saveFocused: Bool
     init(section: Binding<NightrSettingsSection>, status: ControllerStatus?, store: SettingsStore? = nil,
          initialDraft: NightrCore.Settings? = nil, notificationStatus: UNAuthorizationStatus? = nil,
+         updates: DesktopUpdatePresentation = .sample, automaticUpdates: Bool = true,
+         saveAutomaticUpdates: @escaping (Bool) -> Void = { _ in },
+         checkForUpdates: @escaping () -> Void = {}, installUpdate: @escaping () -> Void = {},
          readHotspotMode: @escaping () -> HotspotJoinMode = HotspotJoinMode.current, setForceMode: @escaping (Bool) -> Void = { _ in }, apply: @escaping (NightrCore.Settings) async throws -> Void = { _ in }, close: @escaping () -> Void = {}) {
         self.readHotspotMode = readHotspotMode; self.setForceMode = setForceMode
         _section = section; self.status = status; self.store = store; self.initialDraft = initialDraft
         self.apply = apply; self.close = close
+        self.updates = updates; self.automaticUpdates = automaticUpdates; self.saveAutomaticUpdates = saveAutomaticUpdates
+        self.checkForUpdates = checkForUpdates; self.installUpdate = installUpdate
         _notificationStatus = State(initialValue: notificationStatus)
+        _automaticUpdatesDraft = State(initialValue: automaticUpdates)
         if let initialDraft { _draft = State(initialValue: initialDraft); _original = State(initialValue: initialDraft); _loaded = State(initialValue: true) }
     }
     var body: some View {
@@ -60,7 +83,8 @@ struct SettingsView: View {
                                     notifications: Binding(get: { notificationsAllowed }, set: { _ in manageNotifications() }),
                                     notificationsReady: notificationStatus != nil, condition: condition,
                                     internet: internet, mode: hotspotMode, forceMode: status?.forceMode == true, setForceMode: setForceMode, outage: outage,
-                                    repair: needsCredential ? repairAccess : nil) {
+                                    repair: needsCredential ? repairAccess : nil, updates: updates,
+                                    automaticUpdates: $automaticUpdatesDraft, updateAction: updateAction) {
                     Button(draft.hotspotSSID.isEmpty ? "Choose network…" : draft.hotspotSSID) { chooser = true }
                         .lineLimit(1).accessibilityLabel("Choose hotspot").help(draft.hotspotSSID)
                 }
@@ -69,7 +93,7 @@ struct SettingsView: View {
             Divider()
             if let error { Text(error).font(.system(size: 13)).foregroundStyle(.red).textSelection(.enabled).padding(.horizontal, 18).padding(.top, 10) }
             HStack {
-                Button("Reset") { draft = NightrCore.Settings(); credential = .unchanged; conditionsEdited = false; networkSecurity = nil; error = nil; numbers.reset() }.buttonStyle(SettingsActionStyle()).disabled(saving)
+                Button("Reset") { draft = NightrCore.Settings(); automaticUpdatesDraft = true; credential = .unchanged; conditionsEdited = false; networkSecurity = nil; error = nil; numbers.reset() }.buttonStyle(SettingsActionStyle()).disabled(saving)
                 Spacer()
                 Button("Cancel") { credential = .unchanged; close() }.buttonStyle(SettingsActionStyle()).disabled(saving).keyboardShortcut(.cancelAction)
                 Button { Task { await save() } } label: {
@@ -92,11 +116,36 @@ struct SettingsView: View {
         .alert("Login setting saved", isPresented: $savedApprovalNotice) {
             Button("OK") { close() }
         } message: { Text(DesktopSetup.approvalGuidance) }
+        .confirmationDialog("Save changes before updating?", isPresented: $saveBeforeUpdate, titleVisibility: .visible) {
+            Button("Save and Continue") { Task { if await save(dismiss: false) { confirmUpdate = true } } }
+            Button("Discard and Continue", role: .destructive) { discardChanges(); confirmUpdate = true }
+            Button("Keep Editing", role: .cancel) { }
+        } message: { Text("Updating will close Settings.") }
+        .alert("Install Nightr \(updateTargetVersion ?? "")?", isPresented: $confirmUpdate) {
+            Button("Cancel", role: .cancel) { }
+            Button("Continue in Terminal") {
+                if updates.phase.readyVersion == updateTargetVersion { installUpdate() }
+                else { error = "The available update changed. Check again." }
+            }
+        } message: { Text("Nightr will reopen after installation. Terminal will ask for administrator approval.") }
         .onChange(of: section) { if $0 == .connectivity { hotspotMode = readHotspotMode() } }
         .task(id: activeState) {
             hotspotMode = readHotspotMode()
             await refreshNotifications()
         }
+    }
+    private func updateAction() {
+        guard let version = updates.phase.readyVersion else { checkForUpdates(); return }
+        updateTargetVersion = version
+        let credentialChanged: Bool
+        if case .unchanged = credential { credentialChanged = false } else { credentialChanged = true }
+        if draft != original || automaticUpdatesDraft != automaticUpdates || credentialChanged || networkSecurity != nil || !numbers.invalid.isEmpty {
+            saveBeforeUpdate = true
+        } else { confirmUpdate = true }
+    }
+    private func discardChanges() {
+        draft = original; automaticUpdatesDraft = automaticUpdates
+        credential = .unchanged; networkSecurity = nil; conditionsEdited = false; error = nil; numbers.reset()
     }
     private var internet: String {
         if status?.forceMode == true { return "Checks paused" }
@@ -146,8 +195,8 @@ struct SettingsView: View {
             original = draft; loaded = true
         } catch { self.error = error.localizedDescription }
     }
-    private func save() async {
-        guard let store, !saving else { return }
+    @discardableResult private func save(dismiss: Bool = true) async -> Bool {
+        guard let store, !saving else { return false }
         saving = true
         defer { saving = false }
         var registration: DesktopRegistrationReceipt?
@@ -190,14 +239,17 @@ struct SettingsView: View {
                 _ = try DesktopSetup.login(enabled: false)
                 pendingLoginRemoval = false
             }
+            saveAutomaticUpdates(automaticUpdatesDraft)
             error = nil
-            if registration?.pending.isEmpty == false { savedApprovalNotice = true }
-            else { close() }
+            if registration?.pending.isEmpty == false { savedApprovalNotice = true; return false }
+            if dismiss { close() }
+            return true
         } catch {
             if committed || pendingLoginRemoval {
                 self.error = "Settings saved; " + (pendingLoginRemoval ? "login removal incomplete. " : "controller update incomplete. ") + error.localizedDescription
             } else { self.error = error.localizedDescription }
             saveFocused = true
+            return false
         }
     }
 

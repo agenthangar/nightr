@@ -52,6 +52,7 @@ import NightrCore
 
     private func insertStatusItemIfNeeded() {
         guard model.presentation.menuVisible, statusItem == nil else { return }
+        model.updater.start()
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
         guard let button = item.button else { return }

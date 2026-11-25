@@ -192,8 +192,9 @@ inventory only and expired observations stay distinct. Each row opens a plain
 details dialog with current state/runtime and useful reported Memory, Context
 window and Time generating/rate values only when known. Unverified observations
 do not acquire a current loaded state or rate. Escape returns focus to the row.
-Agent Active and verified Internet Connected use a green circle-check; checking,
-unknown and unavailable observations retain explicit text. CPU/GPU is informational.
+Agent appears with a green circled check only during observed activity. The
+protection header reports startup checks. Internet Connected uses a green check,
+and other Internet states retain their labels. CPU/GPU is informational.
 
 **Settings…** opens the full existing General, Protection, Connectivity and
 Advanced controls through `index.html?activity-settings=1`, a narrowly gated
@@ -205,6 +206,12 @@ Cancel/Escape discards it. A hotspot child's Escape closes only that child and
 returns focus to Choose; closing Settings returns focus to its opener. Section
 switches retain the draft, including display/lock, timing, battery, notifications,
 login and hotspot preferences. Native credentials and Wi-Fi actions remain simulated.
+
+Open [General in the activity preview](activity.html#settings/general) through
+the loopback server to try **Check for Updates** and **Install Update…** with a
+sample release. Close Settings and expand **Preview controls** to simulate a
+background check or choose another result. **Runtime observation** switches
+between sample agent states. All downloads and installs are simulated.
 
 Automatic protection evaluates the saved `checks` and legacy `require` policy;
 Existing until-stopped configurations retain `forever` until the user chooses automatic rules. Unrelated edits preserve imported check policies.

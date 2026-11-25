@@ -65,7 +65,7 @@ def test_proxy_validates_real_request_and_only_adds_no_prompt(tmp_path, monkeypa
                              INSTALL_GUARD=Path('/Library/PrivilegedHelperTools/ai.nightr.installguard'))
     calls = []
     monkeypatch.setattr(upgrade.subprocess, 'run', lambda command, **kw: calls.append((command, kw)))
-    report = {'teamID': 'TEAM123456'}
+    report = {'teamID': 'TEAM123456', 'baselineVersion': '0.0.0', 'finalVersion': '0.1.0'}
     proxy = upgrade.NoPromptSubprocess(module, report)
     command = ['/usr/bin/sudo', '--', '/usr/sbin/installer', '-pkg', '/Volumes/signed/Nightr.pkg', '-target', '/']
     proxy.run(command, check=True, timeout=180)
@@ -111,7 +111,8 @@ def test_manifest_teams_must_match_independent_configuration_before_privileged_c
     commands = []
     monkeypatch.setattr(upgrade.checks, 'run', lambda *a, **kw: commands.append(a))
     args = SimpleNamespace(disposable_github_runner=True, team_id='TEAM123456', baseline_manifest=tmp_path / 'old.json',
-                           baseline_dmg=tmp_path / 'old.dmg', final_manifest=tmp_path / 'new.json', final_dmg=tmp_path / 'new.dmg')
+                           baseline_dmg=tmp_path / 'old.dmg', final_manifest=tmp_path / 'new.json', final_dmg=tmp_path / 'new.dmg',
+                           baseline_version='0.0.0', final_version='0.1.0')
     with pytest.raises(RuntimeError, match='independently configured team'):
         upgrade.accept(args, {})
     assert commands == []

@@ -154,6 +154,12 @@ import Glibc
 #else
                 throw IPCError.invalid("macOS required")
 #endif
+            case "desktop-update":
+#if os(macOS)
+                try await installDesktopUpdate()
+#else
+                throw IPCError.invalid("macOS required")
+#endif
             default: throw IPCError.invalid("invalid internal package request")
             }
         default: throw SettingsError.invalid("unknown command: \(command). Run `nightr --help`.")
@@ -202,17 +208,51 @@ import Glibc
         guard let status = response.status else { throw IPCError.invalid("controller returned no status") }
         print(ForegroundStatus.lines(status).joined(separator: "\n"))
     }
-    static func bundledPython(script: String, args: [String]) throws {
+    static func bundledPython(script: String, args: [String], isolated: Bool = false) throws {
         let python = resources.appendingPathComponent("runtime/bin/python3")
         let source = resources.appendingPathComponent("libexec/" + script)
         guard FileManager.default.isExecutableFile(atPath: python.path), FileManager.default.fileExists(atPath: source.path) else {
             throw IPCError.invalid("bundled runtime is missing; repair the canonical Nightr installation")
         }
-        let process = Process(); process.executableURL = python; process.arguments = [source.path] + args
+        let process = Process(); process.executableURL = python; process.arguments = (isolated ? ["-I"] : []) + [source.path] + args
         try process.run(); process.waitUntilExit()
         if process.terminationStatus != 0 { exit(process.terminationStatus) }
     }
 #if os(macOS)
+    @MainActor static func installDesktopUpdate() async throws {
+        let app = URL(fileURLWithPath: "/Applications/Nightr.app", isDirectory: true)
+        let info = app.appendingPathComponent("Contents/Info.plist")
+        guard contents.path == app.appendingPathComponent("Contents").path,
+              isatty(STDIN_FILENO) == 1, let previous = AppBundleVersion.read(infoPlist: info) else {
+            throw IPCError.invalid("Open the installed Nightr app to update from Settings.")
+        }
+        let old = NSRunningApplication.runningApplications(withBundleIdentifier: "ai.nightr.app").filter {
+            $0.bundleURL?.path == app.path && $0.executableURL?.lastPathComponent == "NightrApp"
+        }
+        try bundledPython(script: "nightr_install.py", args: ["desktop-update"], isolated: true)
+        guard let installed = AppBundleVersion.read(infoPlist: info), installed != previous else {
+            throw IPCError.invalid("Couldn’t confirm the new installed version. Open Nightr from Applications.")
+        }
+        for application in old where !application.isTerminated { _ = application.terminate() }
+        for _ in 0..<50 {
+            if old.allSatisfy(\.isTerminated) { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        guard old.allSatisfy(\.isTerminated) else {
+            throw IPCError.invalid("Update installed. Quit and reopen Nightr from Applications.")
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.createsNewApplicationInstance = true
+        configuration.allowsRunningApplicationSubstitution = false
+        let opened = try await NSWorkspace.shared.openApplication(at: app, configuration: configuration)
+        let controller = try ControllerClient().request(.init(command: .status))
+        guard !opened.isTerminated, opened.bundleURL?.path == app.path, controller.error == nil, controller.status != nil else {
+            throw IPCError.invalid("Update installed. Open Nightr from Applications to check protection.")
+        }
+        print("Nightr \(installed) reopened.")
+    }
+
     static func saveHotspotPassword(ssid: String) throws {
         try Settings.validateSSID(ssid)
         guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {

@@ -2,8 +2,8 @@
 """Disposable GitHub-hosted macOS acceptance of a real signed managed upgrade.
 
 No workflow integration or release publication. Never run on a developer Mac.
-Only candidate acquisition and sudo's no-prompt option differ from production.
-Controller resume, helper/login authorization and recovery are not exercised.
+Candidate acquisition uses authenticated workflow artifacts and sudo uses its
+no-prompt option. Controller resume, UI relaunch and recovery are not exercised.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ import uuid
 
 import check_installer as checks
 
-UNTESTED = ['public HTTPS acquisition', 'controller finish-update/resume',
+UNTESTED = ['public HTTPS acquisition', 'controller finish-update/resume', 'desktop UI relaunch',
             'helper/login authorization', 'rollback/reboot recovery']
 
 
@@ -91,6 +91,8 @@ class NoPromptSubprocess:
     def run(self, arguments, **kwargs):
         arguments = [str(value) for value in arguments]
         if arguments and arguments[0] == '/usr/bin/sudo':
+            if arguments == ['/usr/bin/sudo', '-v'] and self.report.get('desktopStage') == 'passed':
+                return subprocess.run(['/usr/bin/sudo', '-n', '-v'], **kwargs)
             if arguments[:2] != ['/usr/bin/sudo', '--']:
                 raise RuntimeError('Unexpected production sudo prefix')
             command = arguments[2:]
@@ -103,7 +105,7 @@ class NoPromptSubprocess:
                 data = json.loads(request.read_text())
                 identity = self.module.current_process_identity()
                 if (data.get('schemaVersion') != 1 or data.get('owner') != identity or data.get('packagePath') != command[2] or
-                        data.get('version') != '0.1.0' or data.get('originalVersion') != '0.0.0' or
+                        data.get('version') != self.report['finalVersion'] or data.get('originalVersion') != self.report['baselineVersion'] or
                         data.get('operation') != 'install' or data.get('teamID') != self.report['teamID']):
                     raise RuntimeError('Managed request does not bind this nonroot process and upgrade')
                 uuid.UUID(data['transaction'])
@@ -156,8 +158,11 @@ def accept(args, report):
         raise RuntimeError('The managed coordinator requires a real PTY')
     checks.require_fresh()
     checks.assert_absent(home / 'Library/Application Support/Nightr')
-    baseline = load_candidate(args.baseline_manifest, args.baseline_dmg, '0.0.0')
-    final = load_candidate(args.final_manifest, args.final_dmg, '0.1.0')
+    baseline = load_candidate(args.baseline_manifest, args.baseline_dmg, args.baseline_version)
+    final = load_candidate(args.final_manifest, args.final_dmg, args.final_version)
+    if checks.installer.version_key(baseline['version']) >= checks.installer.version_key(final['version']):
+        raise RuntimeError('Final candidate must be newer than baseline')
+    report.update(baselineVersion=baseline['version'], finalVersion=final['version'])
     if baseline['teamID'] != args.team_id or final['teamID'] != args.team_id:
         raise RuntimeError('Candidate signing team differs from the independently configured team')
     report['teamID'] = args.team_id
@@ -189,18 +194,31 @@ def accept(args, report):
     if adopted['version'] != baseline['version'] or adopted['owner'] != 'direct':
         raise RuntimeError('Actual baseline adoption failed')
     report['baselineAdoption'] = 'passed explicit production adoption'
+    if args.desktop:
+        module.latest_manifest = lambda _: final
+        with module.user_package_lock(), tempfile.TemporaryDirectory(prefix='nightr-stage-') as temporary:
+            temporary = Path(temporary)
+            if module.desktop_operation('desktop-check', temporary, None) != {'state': 'available', 'version': final['version']}:
+                raise RuntimeError('Desktop check did not discover the verified candidate')
+            for stage in ['desktop-stage', 'desktop-cached']:
+                if module.desktop_operation(stage, temporary, final['version']) != {'state': 'ready', 'version': final['version']}:
+                    raise RuntimeError('Desktop update was not staged and recovered')
+        report['desktopStage'] = 'passed'
     deferred = []
     report['managedUpgrade'] = 'started'
     with module.installation_lock() as held, tempfile.TemporaryDirectory(prefix='nightr-upgrade-') as temporary:
         if not isinstance(held, module.PackageLockHandle) or not held.held:
             raise RuntimeError('Managed upgrade requires the actual machine update lock')
-        result = module.perform('update', final, Path(temporary), global_lock_held=held, resume_after_unlock=deferred)
+        if args.desktop:
+            result = module.desktop_update(final, Path(temporary), held, deferred)
+        else:
+            result = module.perform('update', final, Path(temporary), global_lock_held=held, resume_after_unlock=deferred)
     if deferred != ['finish-update']:
         raise RuntimeError('Expected production controller resume was not deferred')
     report['deferredActions'] = deferred
     checks.verify_installation(final['teamID'], final['version'])
     verify_user_state(module, baseline, final, result, report)
-    report['managedUpgrade'] = 'passed 0.0.0 to 0.1.0; protected finish completed'
+    report['managedUpgrade'] = f"passed {baseline['version']} to {final['version']}; protected finish completed"
     report['status'] = 'passed_limited_acceptance'
 
 
@@ -244,6 +262,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--disposable-github-runner', action='store_true')
     parser.add_argument('--team-id', required=True, help='Independent expected Developer ID team (not derived from candidate manifests)')
+    parser.add_argument('--baseline-version', default='0.0.0')
+    parser.add_argument('--final-version', default='0.1.0')
+    parser.add_argument('--desktop', action='store_true', help='Stage and install using the signed desktop updater')
     for name in ['baseline-manifest', 'baseline-dmg', 'final-manifest', 'final-dmg', 'report']:
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--_worker', action='store_true', help=argparse.SUPPRESS)

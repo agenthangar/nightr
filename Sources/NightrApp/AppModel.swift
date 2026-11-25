@@ -22,6 +22,7 @@ import NightrPlatform
     private let startIntent = GUIStartIntent()
     private let controllerCommands = GUIControllerCommands { try ControllerClient().request($0) }
     let store = SettingsStore()
+    let updater = DesktopUpdater()
     override init() {
         super.init()
         settingsRequests = GUISettingsNotificationReceiver()

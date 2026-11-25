@@ -3,13 +3,25 @@ on:
   workflow_dispatch:
     inputs:
       baseline_run_id:
-        description: 'Successful signed 0.0.0 candidate run ID'
+        description: 'Successful signed baseline candidate run ID'
         required: true
         type: string
       final_run_id:
-        description: 'Successful signed 0.1.0 candidate run ID from the same source'
+        description: 'Successful signed newer candidate run ID from the same source'
         required: true
         type: string
+      baseline_version:
+        description: 'Baseline version'
+        default: '0.0.0'
+        type: string
+      final_version:
+        description: 'Final version'
+        default: '0.1.0'
+        type: string
+      desktop:
+        description: 'Exercise update staging from the signed desktop package'
+        default: false
+        type: boolean
 permissions:
   contents: read
   actions: read
@@ -23,6 +35,8 @@ jobs:
     timeout-minutes: 60
     env:
       NIGHTR_TEAM_ID: ${{ vars.NIGHTR_TEAM_ID }}
+      BASELINE_VERSION: ${{ inputs.baseline_version }}
+      FINAL_VERSION: ${{ inputs.final_version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,7 +54,7 @@ jobs:
                   'schemaVersion': 1, 'status': 'not_started',
                   'workflowSHA': os.environ['GITHUB_SHA'], 'runID': os.environ['GITHUB_RUN_ID'],
                   'reason': 'Earlier validation or candidate acquisition has not completed.',
-                  'untested': ['public HTTPS acquisition', 'controller finish-update/resume',
+                  'untested': ['public HTTPS acquisition', 'controller finish-update/resume', 'desktop UI relaunch',
                                'helper/login authorization', 'rollback/reboot recovery']
               }, indent=2) + '\n')
           PY
@@ -53,10 +67,14 @@ jobs:
           BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
           FINAL_RUN_ID: ${{ inputs.final_run_id }}
         run: |
-          python3 scripts/fetch_upgrade_candidates.py --baseline-run-id "$BASELINE_RUN_ID" --final-run-id "$FINAL_RUN_ID" --team-id "$NIGHTR_TEAM_ID" --output candidates --report dist/candidate-provenance.json
+          python3 scripts/fetch_upgrade_candidates.py --baseline-run-id "$BASELINE_RUN_ID" --final-run-id "$FINAL_RUN_ID" --baseline-version "$BASELINE_VERSION" --final-version "$FINAL_VERSION" --team-id "$NIGHTR_TEAM_ID" --output candidates --report dist/candidate-provenance.json
       - name: Accept the real managed version upgrade
+        env:
+          DESKTOP: ${{ inputs.desktop }}
         run: |
-          python3 scripts/check_upgrade.py --disposable-github-runner --team-id "$NIGHTR_TEAM_ID" --baseline-manifest candidates/baseline/nightr-release.json --baseline-dmg candidates/baseline/Nightr-0.0.0-universal.dmg --final-manifest candidates/final/nightr-release.json --final-dmg candidates/final/Nightr-0.1.0-universal.dmg --report dist/upgrade-acceptance.json
+          desktop=()
+          if [[ "$DESKTOP" == true ]]; then desktop+=(--desktop); fi
+          python3 scripts/check_upgrade.py --disposable-github-runner --team-id "$NIGHTR_TEAM_ID" --baseline-version "$BASELINE_VERSION" --final-version "$FINAL_VERSION" --baseline-manifest candidates/baseline/nightr-release.json --baseline-dmg "candidates/baseline/Nightr-$BASELINE_VERSION-universal.dmg" --final-manifest candidates/final/nightr-release.json --final-dmg "candidates/final/Nightr-$FINAL_VERSION-universal.dmg" --report dist/upgrade-acceptance.json "${desktop[@]}"
       - name: Retain reports only
         if: always()
         uses: actions/upload-artifact@v4

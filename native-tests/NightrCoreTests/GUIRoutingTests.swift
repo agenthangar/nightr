@@ -80,6 +80,21 @@ final class GUIRoutingTests: XCTestCase {
         XCTAssertEqual(GUIProtectionSummary(status: nil).label, "Checking…")
         XCTAssertEqual(GUIProtectionSummary(status: nil, error: "Connection failed").label, "Error")
     }
+    func testAgentRowRequiresAnActiveObservationOutsideForceMode() {
+        XCTAssertFalse(GUIProtectionSummary(status: nil).showsActiveAgent)
+        let now = Date()
+        for observation in [AgentObservation.checking, .idle, .active] {
+            let sample = MachineSample(agentActive: true, agentObservation: observation)
+            var engine = MonitorEngine(sample: sample)
+            let status = ControllerStatus(engine: engine)
+            XCTAssertEqual(GUIProtectionSummary(status: status).showsActiveAgent, observation == .active)
+            XCTAssertFalse(GUIProtectionSummary(status: status, error: "Unavailable").showsActiveAgent)
+            _ = engine.handle(.beginForce, now: now)
+            let forcedStatus = ControllerStatus(engine: engine)
+            XCTAssertFalse(GUIProtectionSummary(status: forcedStatus).showsActiveAgent)
+            XCTAssertEqual(GUIProtectionSummary(status: forcedStatus).internet, "Checks paused")
+        }
+    }
     func testCommittedSettingsBytesRemainAnExactConflictBaseline() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("nightr-save-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -12,6 +12,9 @@ private struct PreviewSettings: View {
     @State private var forced = false
     @StateObject private var numbers = NumericDrafts()
     @State private var saved = false
+    @State private var automaticUpdates: Bool
+    @State private var updates = DesktopUpdatePresentation.sample
+    @State private var simulateInstall = false
 
     init(session: NSMutableDictionary) {
         self.session = session
@@ -19,6 +22,7 @@ private struct PreviewSettings: View {
         _draft = State(initialValue: Self.settings(session["draft"]))
         _forced = State(initialValue: session["force"] as? Bool ?? true)
         _notifications = State(initialValue: session["notifications"] as? Bool ?? true)
+        _automaticUpdates = State(initialValue: session["automaticUpdates"] as? Bool ?? true)
     }
 
     private static func settings(_ data: Any?) -> NightrCore.Settings {
@@ -39,13 +43,16 @@ private struct PreviewSettings: View {
                     session["force"] = enabled
                     forced = enabled
                     NotificationCenter.default.post(name: .previewForceChanged, object: session)
+                }, updates: updates, automaticUpdates: $automaticUpdates, updateAction: {
+                    if updates.phase.readyVersion != nil { simulateInstall = true }
+                    else if updates.version == "0.1.0" { updates.phase = .ready("0.1.1") }
                 }) {
                     Button(draft.hotspotSSID.isEmpty ? "Choose network…" : draft.hotspotSSID) { chooser = true }
                 }
             }
             Divider()
             HStack(spacing: 9) {
-                Button("Reset") { draft = NightrCore.Settings(); notifications = true; numbers.reset(); access.discard() }.buttonStyle(SettingsActionStyle())
+                Button("Reset") { draft = NightrCore.Settings(); notifications = true; automaticUpdates = true; numbers.reset(); access.discard() }.buttonStyle(SettingsActionStyle())
                 Spacer()
                 Text(saved ? "Saved in preview" : "Local preview").font(.system(size: 11)).foregroundStyle(Color.nightrMuted)
                 Button("Cancel") {
@@ -53,12 +60,14 @@ private struct PreviewSettings: View {
                     numbers.reset()
                     draft = Self.settings(session["savedDraft"])
                     notifications = session["savedNotifications"] as? Bool ?? true
+                    automaticUpdates = session["savedAutomaticUpdates"] as? Bool ?? true
                     NotificationCenter.default.post(name: .previewCloseSettings, object: nil)
                 }.buttonStyle(SettingsActionStyle())
                 Button("Save") {
                     access.save()
                     session["savedDraft"] = try? JSONEncoder().encode(draft)
                     session["savedNotifications"] = notifications
+                    session["savedAutomaticUpdates"] = automaticUpdates
                     saved = true
                     NotificationCenter.default.post(name: .previewSettingsSaved, object: nil)
                     NotificationCenter.default.post(name: .previewCloseSettings, object: nil)
@@ -72,6 +81,11 @@ private struct PreviewSettings: View {
         .onChange(of: tab) { session["tab"] = $0.rawValue }
         .onChange(of: draft) { session["draft"] = try? JSONEncoder().encode($0); saved = false }
         .onChange(of: notifications) { session["notifications"] = $0; saved = false }
+        .onChange(of: automaticUpdates) { session["automaticUpdates"] = $0; saved = false }
+        .alert("Install Nightr 0.1.1?", isPresented: $simulateInstall) {
+            Button("Cancel", role: .cancel) { }
+            Button("Simulate Install") { updates = .init(version: "0.1.1", build: "b71e506", phase: .current) }
+        } message: { Text("Nightr will reopen after installation. Terminal will ask for administrator approval.") }
         .onReceive(NotificationCenter.default.publisher(for: .previewOpenSettings)) { request in
             let destination = request.userInfo?["section"] as? String
             tab = destination.flatMap(NightrSettingsSection.init(rawValue:)) ?? .general

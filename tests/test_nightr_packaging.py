@@ -1,5 +1,6 @@
 """Package operations are verified with mocks; never install or change services."""
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -54,6 +55,119 @@ def test_check_does_not_create_persistent_state(sandbox, monkeypatch, capsys):
     assert not sandbox.state.exists()
     result = json.loads(capsys.readouterr().out)
     assert result == {"installed": False, "owner": None, "version": None, "availableVersion": "0.1.0", "updateAvailable": False}
+
+
+@pytest.fixture
+def desktop_candidate(sandbox, monkeypatch):
+    info = sandbox.app / "Contents/Info.plist"
+    info.parent.mkdir(parents=True)
+    info.write_bytes(plistlib.dumps({"NightrTeamID": "ABCDE12345"}))
+    data = manifest("0.1.1")
+    payload = b"authorized synthetic package"
+    data["asset"].update(size=len(payload), sha256=hashlib.sha256(payload).hexdigest())
+    monkeypatch.setattr(installer, "latest_manifest", lambda _: data)
+    monkeypatch.setattr(installer, "verify_installed_receipt", lambda _: "0.1.0")
+    monkeypatch.setattr(installer, "homebrew_receipt", lambda *a, **kw: False)
+    monkeypatch.setattr(installer, "download", lambda url, path, max_size: path.write_bytes(payload))
+    monkeypatch.setattr(installer, "mounted_dmg", lambda image, directory: contextlib.nullcontext(directory))
+    monkeypatch.setattr(installer, "verify_app", lambda *args: None)
+    monkeypatch.setattr(installer, "verify_package", lambda *args: None)
+    return data
+
+
+def test_desktop_direct_cache_and_latest_release(sandbox, desktop_candidate, monkeypatch, capsys):
+    def desktop(action, *args):
+        assert installer.main([action, "--json", *args]) == 0
+        return json.loads(capsys.readouterr().out)
+
+    assert desktop("desktop-check") == {"state": "available", "version": "0.1.1"}
+    assert not sandbox.state.exists()
+    assert desktop("desktop-cached") == {"state": "idle"}
+    assert desktop("desktop-stage", "--expected-version", "0.1.1") == {"state": "ready", "version": "0.1.1"}
+    assert installer.read_record() is None
+    assert not (sandbox.state / "packages").exists()
+    assert desktop("desktop-cached") == {"state": "ready", "version": "0.1.1"}
+    assert desktop("desktop-stage", "--expected-version", "0.1.1")["state"] == "ready"
+    image = sandbox.state / "pending-update/Nightr.dmg"
+    image.write_bytes(b"unverified")
+    assert installer.main(["desktop-cached", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["state"] == "error"
+    assert desktop("desktop-stage", "--expected-version", "0.1.1")["state"] == "ready"
+    monkeypatch.setattr(installer, "verify_installed_receipt", lambda _: "0.1.1")
+    assert desktop("desktop-check")["state"] == "current"
+    assert desktop("desktop-cached")["state"] == "current"
+
+
+def test_desktop_selection_and_protected_cache(sandbox, desktop_candidate, monkeypatch):
+    with installer.user_package_lock():
+        with pytest.raises(installer.InstallError, match="available release changed"):
+            installer.desktop_operation("desktop-stage", sandbox.root, "0.1.2")
+        assert installer.desktop_operation("desktop-stage", sandbox.root, "0.1.1")["state"] == "ready"
+        folder = installer.pending_directory()
+        manifest_file = folder / "manifest.json"
+        manifest_file.chmod(0o644)
+        with pytest.raises(installer.InstallError, match="Unsafe pending update manifest"):
+            installer.read_pending()
+        manifest_file.chmod(0o600)
+        image = folder / "Nightr.dmg"
+        image.unlink()
+        image.symlink_to(manifest_file)
+        with pytest.raises(installer.InstallError, match="Unsafe pending package"):
+            installer.desktop_image(desktop_candidate, "direct", sandbox.root)
+        folder.chmod(0o755)
+        with pytest.raises(installer.InstallError, match="Unsafe pending update directory"):
+            installer.pending_directory()
+    monkeypatch.setattr(installer, "desktop_team", lambda: "ZZZZZ12345")
+    with pytest.raises(installer.InstallError, match="signing team changed"):
+        installer.desktop_operation("desktop-check", sandbox.root, None)
+
+
+def test_desktop_homebrew_checks_receipt_and_cached_image(sandbox, desktop_candidate, monkeypatch):
+    events = []
+    brew = "/opt/homebrew/bin/brew"
+    monkeypatch.setattr(installer, "homebrew_receipt", lambda **kw: True)
+    monkeypatch.setattr(installer.shutil, "which", lambda _: brew)
+    monkeypatch.setattr(installer, "verify_homebrew_receipt", lambda *args: events.append(args))
+    monkeypatch.setattr(installer, "verified_homebrew_contract", lambda manifest: brew)
+    image = installer.download_verified_package(desktop_candidate, sandbox.root)
+    monkeypatch.setattr(installer, "run", lambda *a, **k: str(image))
+    monkeypatch.setattr(installer, "run_passthrough", lambda args, **kw: events.append(args))
+    with installer.user_package_lock():
+        assert installer.desktop_operation("desktop-stage", sandbox.root, "0.1.1")["state"] == "ready"
+        assert not (installer.pending_directory() / "Nightr.dmg").exists()
+        assert events == [(brew, "0.1.0"), [brew, "fetch", "--cask", installer.HOMEBREW_CASK]]
+        assert installer.desktop_operation("desktop-cached", sandbox.root, None)["state"] == "ready"
+        monkeypatch.setattr(installer, "run", lambda *a, **k: "relative")
+        with pytest.raises(installer.InstallError, match="invalid cache path"):
+            installer.desktop_image(desktop_candidate, "homebrew", sandbox.root)
+    installer.write_record("direct", "0.1.0", "ABCDE12345")
+    with pytest.raises(installer.InstallError, match="ownership has changed"):
+        installer.desktop_owner("ABCDE12345")
+    installer.write_record("direct", "0.1.0", "ZZZZZ12345")
+    with pytest.raises(installer.InstallError, match="signing team differ"):
+        installer.desktop_owner("ABCDE12345")
+
+
+def test_desktop_install_reverifies_before_authorization_and_reuses_image(sandbox, desktop_candidate, monkeypatch):
+    events = []
+    monkeypatch.setattr(installer.os, "geteuid", lambda: 501)
+    monkeypatch.setattr(installer.sys, "stdin", SimpleNamespace(isatty=lambda: False))
+    monkeypatch.setattr(installer, "perform", lambda *a, **kw: events.append(kw["staged"]) or {"version": "0.1.1"})
+    monkeypatch.setattr(installer, "run_passthrough", lambda args, **kw: events.append(args))
+    with installer.user_package_lock():
+        with pytest.raises(installer.InstallError, match="Terminal session"):
+            installer.desktop_update(desktop_candidate, sandbox.root, True, [])
+        monkeypatch.setattr(installer.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+        with pytest.raises(installer.InstallError, match="no longer matches"):
+            installer.desktop_update(desktop_candidate, sandbox.root, True, [])
+        assert installer.desktop_operation("desktop-stage", sandbox.root, "0.1.1")["state"] == "ready"
+        monkeypatch.setattr(installer, "run_passthrough", lambda *a, **kw: (_ for _ in ()).throw(installer.InstallError("cancelled")))
+        with pytest.raises(installer.InstallError, match="cancelled"):
+            installer.desktop_update(desktop_candidate, sandbox.root, True, [])
+        assert not events
+        monkeypatch.setattr(installer, "run_passthrough", lambda args, **kw: events.append(args))
+        assert installer.desktop_update(desktop_candidate, sandbox.root, True, []) == {"version": "0.1.1"}
+        assert events == [["/usr/bin/sudo", "-v"], sandbox.state / "pending-update/Nightr.dmg"]
 
 def test_lock_excludes_concurrent_update_and_rejects_symlink(sandbox):
     with installer.installation_lock():
