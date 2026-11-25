@@ -1,85 +1,66 @@
 # Nightr
 
-Keep your Mac awake while coding agents work.
+Nightr is a macOS menu bar app and CLI that keeps your Mac awake for coding
+agents and local models. Set what happens when you close the lid, how much
+battery to keep in reserve, and which hotspot to try if you lose internet access.
+[nightr.ai](https://nightr.ai/)
 
-Nightr is a native macOS menu bar app and CLI, extracted from
-[AgentHangar t](https://github.com/agenthangar/t). Both interfaces use one
-controller, one set of preferences and one Stop action.
+<p>
+  <img src="site/assets/screenshots/popover-on-dark.png" width="254" alt="Nightr menu bar pane showing active protection, local models, and CPU and GPU activity">
+  <img src="site/assets/screenshots/settings-protection-light.png" width="376" alt="Nightr Protection settings showing automatic rules and a 20% battery cutoff">
+</p>
 
-**Pre-release:** the native implementation is under validation. A signed,
-notarized installer has not been published. Do not use the source checkout as a
-production power-management installation.
+## Install
 
-## Installation
+For a direct install, open the signed DMG and run the included installer.
+[GitHub Releases](https://github.com/agenthangar/nightr/releases)
 
-The release package will include the app, CLI, power helper and Python runtime.
-Users will not need Xcode, developer tools or a separate Python installation.
-Once the signed release and matching Homebrew cask are published, install with:
+To install with Homebrew, run the following command.
 
 ```sh
-brew tap agenthangar/tap
 brew install --cask agenthangar/tap/nightr
 ```
 
-AgentHangar t users can run `t install` and choose **Nightr** under
-**Desktop Apps**. If you confirm the Homebrew installation, t adds the
-AgentHangar tap if needed and verifies the published cask. The signed macOS
-installer inside the DMG is the download alternative. It needs the public signed
-release and works without Homebrew. Installation requires administrator
-authorization. Run `nightr setup` afterward to approve the helper separately.
+Run `nightr setup` after installation to authorize the power helper. Use
+`nightr setup --cli-only` for helper setup without a login app.
+
+## Use Nightr
+
+The menu bar app and CLI share preferences and protection status.
 
 ```sh
-nightr setup                 # helper readiness and desktop setup
-nightr setup --cli-only      # authorize the helper without a login app
-nightr config                # everyday preferences
+nightr config
 nightr start
-nightr status --json         # read-only; does not start a controller
+nightr status --json
 nightr stop
 ```
 
-Run `nightr update` to update the installed package through its existing owner.
+- Choose when agent activity or internet access should keep your Mac awake.
+  Local model generation can also keep it awake while offline. The menu shows
+  model activity and CPU and GPU use when available. [Local model activity](docs/cli.md#local-model-activity)
+- Pick a saved hotspot and set how many times Nightr should try it after an
+  outage. Nightr verifies internet access separately from joining the hotspot.
+  [Connectivity and other CLI settings](docs/cli.md)
+- Stop applies to every client and persists across wake and login. Closed-lid
+  protection requires exclusive control of the macOS sleep-disable setting
+  during a Nightr session. [Power helper and installation details](docs/distribution.md)
 
-Use `nightr` without a subcommand for foreground monitoring. `nosleep` remains a
-compatibility name. Existing config and Keychain service names are preserved.
-Stop remains stopped across wake and login. Protection can resume after a normal
-wake or verified internet recovery when enabled; agents manage their own
-reconnections. Nightr does not execute work while the Mac is asleep.
-
-Settings cover agent/internet checks, lid/display behavior, battery protection
-and a saved hotspot. Hotspot recovery has a bounded attempt budget, independently
-verified internet checks, and Saved/Nearby/Manual network selection. Nightr cannot
-remotely switch on an iPhone hotspot. Network wake settings are not part of Nightr.
-
-The menu and native CLI also show CPU and GPU utilization when available, loaded
-models and runtime details. An opt-in Protection setting lets a local inference
-integration keep the Mac awake while a model is working, including offline.
-See [local model activity](docs/cli.md#local-model-activity).
-
-Closed-lid protection uses a signed, authorized helper with an expiring lease.
-It requires exclusive control of macOS's global sleep-disable setting; other
-sleep utilities must not change that setting during a Nightr session.
-
-See [distribution and signing](docs/distribution.md), the
-[implementation plan](docs/implementation-plan.md), and the
-[upstream attribution](docs/provenance.md). The extracted source-only CLI and its
-legacy behavior are documented in [the compatibility guide](docs/cli.md).
+Run `nightr` without a subcommand for foreground monitoring. Existing `nosleep`
+commands, preferences, and Keychain entries carry over. Run `nightr update` to
+update through your original installation method. [Update instructions](docs/distribution.md#package-ownership-and-updates)
 
 ## Agent controls
 
-The native CLI provides a local stdio MCP server with `nightr mcp`. Its eight
-tools inspect policy and readiness or explicitly Start, Stop and control a
-bounded hotspot cycle. Read-only tools never launch the controller. Protection
-is shared per user: connecting, disconnecting and finishing an agent task never
-change it. Stop affects every client. See [MCP and plugin setup](docs/plugins.md)
-and [the command contract](docs/cli.md#mcp-server). Signed release availability
-remains subject to the pre-release notice above.
+Run `nightr mcp` to give coding agents tools to inspect readiness, start or stop
+protection, and manage hotspot recovery. Status tools are read-only. Protection
+stays enabled or disabled when an agent disconnects or finishes a task.
+[MCP and plugin setup](docs/plugins.md) and [command contract](docs/cli.md#mcp-server)
 
 ## Development
 
-Contributor builds require a Swift toolchain and the macOS SDK. This requirement
-does not apply to the planned prebuilt release. `swift build` compiles native
-targets. `swift test` requires XCTest; Linux CI exercises portable logic and full
-Xcode supplies macOS XCTest. Native desktop tests are opt-in.
+Contributor builds require a Swift toolchain and the macOS SDK. Run
+`swift build` to compile native targets and `swift test` with XCTest. Linux CI
+exercises portable logic. Native desktop tests are opt-in.
 
 After `swift build --product nightr-native`, a protocol-only working preview is
 available with `python3 scripts/preview_mcp.py --binary .build/debug/nightr-native`.
@@ -96,3 +77,6 @@ Tests use temporary user state and mocked power/network/credential operations.
 Never install helpers, alter power settings, join Wi-Fi or change Keychain as a
 test on a developer's Mac. `design-preview/` is a separate browser simulation;
 `site/` is the static product website.
+
+Nightr was extracted from AgentHangar t. [Upstream attribution](docs/provenance.md)
+and [implementation plan](docs/implementation-plan.md)

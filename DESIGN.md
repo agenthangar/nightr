@@ -20,7 +20,7 @@ Use this index when changing the app, either preview, the CLI or the website. Th
 | Rows and fields | Follow Advanced for all forms. Align labels and hints left and visible controls right. Use a compact menu, a single duration field with unit control, or a compact count field with a separate native stepper 6pt to its right. Keep explanatory copy beside the relevant option. | `CompactSettingsForm`, `NetworkChooser`, native protection-edge, chooser-anchor and count-stepper checks |
 | Protection | Under “Keep Mac awake”, label each automatic condition with “When”. Offer temporary Force mode on the main pane and in Protection. Keep the battery row visible by default and enable its 20% cutoff on new configurations. Respect explicit opt-out and external power. | `testBatteryCutoffDefaultsAndSavedOptOut`, `testForceOverridesChecksButHonorsSafetyAndOriginalIntent`, native Protection capture |
 | Connectivity | Show observed internet and hotspot preference first. Use the same row alignment for backup hotspot, delay and attempts. Choosing a network enables fallback in the draft. Reuse saved passwords and request a masked password for an unsaved secured network. | `NetworkChooser`, native three-tab geometry and secured/saved/open interaction checks, browser draft and credential tests |
-| CLI and website | Preserve CLI flags, configuration semantics and explicit Stop. Use the approved icon and the website typography and navigation specified below. | CLI contracts and the website, icon and lifecycle checks in `design-preview/check-preview.cjs` |
+| CLI and website | Preserve CLI flags, configuration semantics and explicit Stop. Use the approved icon and the website typography and navigation specified below. The product site and repository README share the native menu bar screenshot with synthetic data. | CLI contracts and the website, icon and lifecycle checks in `design-preview/check-preview.cjs`. See [site screenshot instructions](site/README.md) for native captures. |
 
 For the evidence from the current review, see the [app and preview audit](docs/design-audit.md).
 
@@ -251,6 +251,8 @@ https://github.com/agenthangar/agenthangar.github.io/blob/main/styles.css.
 Product copy: “You sleep. Your agents don't.” Pair it with the concrete promise:
 keep your Mac awake for coding-agent work, with battery and connectivity controls.
 Show the app and CLI, explain install requirements honestly, and link source.
+Use descriptive feature headings and omit decorative numbering. The product site
+and repository README present the direct download and Homebrew installation paths.
 Prototype copy must label proposed capabilities; no invented testimonials/stats.
 
 Use **Download for macOS** as the primary product action. The intended release
