@@ -1,4 +1,4 @@
-"""Offline checks for the published static site's assets and truthful release state."""
+"""Offline checks for the published site's assets and installation paths."""
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -38,12 +38,12 @@ class SiteTests(unittest.TestCase):
         self.assertTrue(page.images)
         self.assertTrue(all('alt' in image for image in page.images))
         self.assertIn('main', page.ids)
-    def test_release_state_and_install_paths(self):
+    def test_install_links_and_commands(self):
         html = (ROOT / 'index.html').read_text()
-        self.assertIn('no signed installer is available yet', html)
-        self.assertIn('PLANNED INSTALL · NOT YET AVAILABLE', html)
+        self.assertIn('href="https://github.com/agenthangar/nightr/releases"', html)
+        self.assertIn('Open the signed DMG and run the included installer.', html)
         self.assertIn('brew install --cask agenthangar/tap/nightr', html)
-        self.assertIn('t install nightr', html)
+        self.assertNotRegex(html, r'(?i)\bpre-release\b|\bt install\b')
         self.assertIn('nightr setup', html)
         self.assertIn('nightr config', html)
         self.assertNotIn('/releases/download/', html)
