@@ -223,6 +223,9 @@ public struct MonitorEngine: Sendable {
         }
         else if !hardPause {
             if state.pause == .battery || state.pause == .setup { state.pause = state.resumePause; state.resumePause = nil; refreshSamples(now: now); state.internet = .stale }
+            if settings.requiresLocalInference && (state.pause == .inactivity || state.pause == .connectivity) {
+                state.pause = nil; resetConditions()
+            }
             if state.pause != .inactivity {
                 if changedSettings || sample.agentObservation != lastAgentObservation || checkingAllowance(now: now) != checkingAllowanceWasActive || inferenceActive(now: now) || inferenceWasActive || (state.nextConditionRetryAt.map({ now >= $0 }) ?? false) || (lastConditionCheck.map({ now.timeIntervalSince($0) >= Double(settings.every) }) ?? true) {
                     evaluateConditions(now: now, effects: &effects); lastConditionCheck = now
@@ -261,6 +264,11 @@ public struct MonitorEngine: Sendable {
     }
     private mutating func evaluateConditions(now: Date, effects: inout [MonitorEffect]) {
         let inference = inferenceActive(now: now)
+        if settings.requiresLocalInference {
+            if inference && !holding { holding = true; effects.append(.acquireHold(settings)) }
+            if !inference { release(&effects) }
+            return
+        }
         if state.pause == .connectivity && !state.lastInternetVerified && !inference { release(&effects); return }
         if state.lastAgentActiveAt == nil { state.lastAgentActiveAt = now }
         if state.lastInternetAvailableAt == nil { state.lastInternetAvailableAt = now }

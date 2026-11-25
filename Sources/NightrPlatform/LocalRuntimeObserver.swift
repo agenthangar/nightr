@@ -3,6 +3,9 @@ import CoreFoundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+#if os(macOS)
+import Security
+#endif
 import NightrCore
 
 /// The allowlist is deliberately closed: no configured URLs, discovery scan,
@@ -117,6 +120,7 @@ final class RuntimeHTTPRequest: NSObject, URLSessionDataDelegate, @unchecked Sen
 struct LocalRuntimeObserver: Sendable {
     typealias Fetch = @Sendable (RuntimeEndpoint) async throws -> RuntimeHTTPResponse
     var fetch: Fetch = { try await RuntimeHTTPRequest().fetch($0) }
+    var lmStudioProcesses: @Sendable () async -> Data? = { await LMStudioProcesses.read() }
 
     func observe(now: Date, mlxListenerVerified: Bool = false) async -> [RuntimeObservation] {
         await withTaskGroup(of: RuntimeObservation?.self) { group in
@@ -154,7 +158,8 @@ struct LocalRuntimeObserver: Sendable {
         // Native LM Studio's required loaded_instances distinguishes its API
         // from generic OpenAI lists. Never use size_bytes as resident memory.
         if runtime == .lmStudio && rows.contains(where: { $0["loaded_instances"] as? [[String: Any]] == nil }) { return nil }
-        let models = rows.prefix(RuntimeObservation.maximumModels).compactMap { row -> LocalModelObservation? in
+        let sortedRows = runtime == .lmStudio ? rows.filter(Self.lmStudioLoaded) + rows.filter { !Self.lmStudioLoaded($0) } : rows
+        var models = sortedRows.prefix(RuntimeObservation.maximumModels).compactMap { row -> LocalModelObservation? in
             guard let id = Self.modelID(row[runtime == .lmStudio ? "key" : "id"]) else { return nil }
             var residency: ModelResidency = .available
             var context: Int?
@@ -169,7 +174,14 @@ struct LocalRuntimeObserver: Sendable {
             return LocalModelObservation(id: id, name: runtime == .lmStudio ? Self.modelID(row["display_name"]) : nil,
                                          residency: residency, contextTokens: context)
         }
+        if runtime == .lmStudio, models.contains(where: { $0.residency == .loaded }),
+           let data = await lmStudioProcesses() {
+            LMStudioProcesses.apply(data, to: &models, observedAt: now)
+        }
         return RuntimeObservation(runtime: runtime, observedAt: now, models: models)
+    }
+    private static func lmStudioLoaded(_ row: [String: Any]) -> Bool {
+        (row["loaded_instances"] as? [[String: Any]])?.isEmpty == false
     }
     static func object(_ response: RuntimeHTTPResponse) -> [String: Any]? {
         guard response.status == 200, response.body.count <= RuntimeHTTPRequest.maximumBytes else { return nil }
@@ -192,4 +204,48 @@ struct LocalRuntimeObserver: Sendable {
         return number.int64Value
     }
     static func positiveInt(_ value: Any?) -> Int? { positiveInt64(value).flatMap(Int.init(exactly:)) }
+}
+
+/// Use the vendor's read-only listing against the server already observed on
+/// loopback. Explicit host and port disable CLI discovery and server startup.
+private enum LMStudioProcesses {
+    static func read() async -> Data? {
+        #if os(macOS)
+        return await Task.detached(priority: .utility) {
+            let binary = URL(fileURLWithPath: "/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms")
+            var code: SecStaticCode?
+            var requirement: SecRequirement?
+            let expression = #"anchor apple generic and identifier "lms" and certificate leaf[subject.OU] = "D65G88RHWN""#
+            guard SecStaticCodeCreateWithPath(binary as CFURL, [], &code) == errSecSuccess, let code,
+                  SecRequirementCreateWithString(expression as CFString, [], &requirement) == errSecSuccess,
+                  let requirement,
+                  SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), requirement) == errSecSuccess else { return nil }
+            return try? BoundedProcess().run(executable: binary, arguments: ["ps", "--json", "--host", "127.0.0.1", "--port", "1234"],
+                                             timeout: 1.5, environment: ["PATH": "/usr/bin:/bin", "NO_COLOR": "1"])
+        }.value
+        #else
+        return nil
+        #endif
+    }
+
+    static func apply(_ data: Data, to models: inout [LocalModelObservation], observedAt: Date) {
+        guard data.count <= RuntimeHTTPRequest.maximumBytes,
+              let rows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return }
+        let rank: [String: Int] = ["idle": 1, "processingPrompt": 2, "generating": 3]
+        let activity: [ModelActivity] = [.unknown, .idle, .processing, .generating]
+        var states: [String: Int] = [:]
+        for row in rows {
+            guard row["type"] as? String == "llm", row["deviceIdentifier"] is NSNull,
+                  let key = LocalRuntimeObserver.modelID(row["modelKey"]),
+                  let status = row["status"] as? String else { continue }
+            states[key] = max(states[key, default: 0], rank[status, default: 0])
+        }
+        for i in models.indices where models[i].residency == .loaded {
+            let observed = activity[states[models[i].id, default: 0]]
+            models[i].activity = observed
+            if observed.isInference {
+                models[i].inferenceExpiresAt = observedAt.addingTimeInterval(RuntimeObservation.freshness)
+            }
+        }
+    }
 }

@@ -39,15 +39,15 @@ struct ActivityModelRow: Identifiable, Equatable {
                 }
             }
             for model in runtime.models {
-                let id = runtime.runtime.rawValue + ":" + model.id
-                guard seen.insert(id).inserted else { continue }
                 let bounded = model.inferenceExpiresAt.map { $0.timeIntervalSince(runtime.observedAt) <= RuntimeObservation.freshness } ?? false
                 let activity = fresh && bounded ? model.observedActivity(at: now) : (fresh && !model.activity.isInference ? model.activity : .unknown)
                 let inference = activity.isInference
+                guard model.residency != .available || inference else { continue }
+                let id = runtime.runtime.rawValue + ":" + model.id
+                guard seen.insert(id).inserted else { continue }
                 let state: String
                 if !fresh { state = "Activity unknown" }
                 else if inference { state = activity == .processing ? "Processing" : "Generating" }
-                else if model.residency == .available { state = "Inventory only" }
                 else if model.residency == .unknown { state = "Loaded state unknown" }
                 else { state = activity == .idle ? "Loaded, idle" : "Loaded, activity unknown" }
                 let elapsed = inference ? model.startedAt.flatMap { start in now >= start ? Int(now.timeIntervalSince(start)) : nil } : nil
@@ -62,6 +62,10 @@ struct ActivityModelRow: Identifiable, Equatable {
             return $0.offset < $1.offset
         }.map(\.element)
     }
+
+    static func emptyLabel(_ observation: ActivityObservation?) -> String {
+        observation?.runtimes.isEmpty == false ? "No loaded models reported" : "No runtime data"
+    }
 }
 
 struct LocalModelsView: View {
@@ -75,7 +79,7 @@ struct LocalModelsView: View {
                 Text("Local models").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.nightrInk).accessibilityAddTraits(.isHeader)
                 Spacer()
                 if rows.isEmpty {
-                    Text("No runtime data").font(.system(size: 13)).foregroundStyle(Color.nightrMuted)
+                    Text(ActivityModelRow.emptyLabel(observation)).font(.system(size: 13)).foregroundStyle(Color.nightrMuted)
                 } else if rows.count > 2 {
                     Button(expanded ? "Show less" : "All \(rows.count)…") { expanded.toggle() }
                         .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(Color.nightrMuted)

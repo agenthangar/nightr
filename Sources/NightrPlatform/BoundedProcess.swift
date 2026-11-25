@@ -27,10 +27,11 @@ public final class BoundedProcess: @unchecked Sendable {
         lock.unlock()
         if let running, running.isRunning { running.terminate() }
     }
-    public func run(executable: URL, arguments: [String], input: Data = Data(), timeout: TimeInterval) throws -> Data {
+    public func run(executable: URL, arguments: [String], input: Data = Data(), timeout: TimeInterval,
+                    environment: [String: String]? = nil) throws -> Data {
         let process = Process()
         process.executableURL = executable; process.arguments = arguments
-        process.environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("COV_CORE_") }
+        process.environment = (environment ?? ProcessInfo.processInfo.environment).filter { !$0.key.hasPrefix("COV_CORE_") }
         let inbound = Pipe(), outbound = Pipe()
         process.standardInput = inbound; process.standardOutput = outbound
         process.standardError = FileHandle.nullDevice
@@ -41,7 +42,13 @@ public final class BoundedProcess: @unchecked Sendable {
         // Drain concurrently so a full pipe cannot deadlock a trusted worker.
         let output = ProcessOutput(), drained = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async {
-            output.set(outbound.fileHandleForReading.readDataToEndOfFile())
+            let handle = outbound.fileHandleForReading
+            var data = Data()
+            while let bytes = try? handle.read(upToCount: 64 * 1024), !bytes.isEmpty {
+                if data.count <= 512 * 1024 { data.append(bytes) }
+            }
+            try? handle.close()
+            output.set(data)
             drained.signal()
         }
         // Worker requests are small, bounded metadata. There are no credential bytes here.

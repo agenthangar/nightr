@@ -25,7 +25,7 @@ import NightrController
             for section in NightrSettingsSection.allCases {
                 let updateFixture = DesktopUpdatePresentation(version: "0.1.0", build: "8a41c2d", phase: .ready("0.1.1"))
                 let view = SettingsView(section: .constant(section), status: sample("On"), initialDraft: draft, notificationStatus: .authorized,
-                                        updates: updateFixture, readHotspotMode: { .automatic })
+                                        updates: updateFixture, readHotspotMode: { .unknown })
                     .environment(\.colorScheme, scheme)
                 let window = makeSettingsWindow(hosting: view)
                 window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
@@ -183,7 +183,7 @@ import NightrController
         let required: [String]
         switch section {
         case .advanced: required = ["check interval", "first retry delay", "scheduled wait"]
-        case .connectivity: required = ["ask to join hotspots", "attempts"]
+        case .connectivity: required = ["ask to join hotspots", "open wi-fi settings", "attempts"]
         case .protection: required = ["allow sleep below"]
         case .general: required = ["hotspot notifications", "automatically download updates", "update ready", "install update", "0.1.0"]
         }

@@ -15,6 +15,8 @@ private struct PreviewSettings: View {
     @State private var automaticUpdates: Bool
     @State private var updates = DesktopUpdatePresentation.sample
     @State private var simulateInstall = false
+    @State private var conditionsEdited = false
+    @State private var protectionError: String?
 
     init(session: NSMutableDictionary) {
         self.session = session
@@ -38,7 +40,7 @@ private struct PreviewSettings: View {
             Divider()
             ScrollView {
                 CompactSettingsForm(draft: $draft, section: tab, notifications: $notifications,
-                                    notificationsReady: true, condition: { $draft[dynamicMember: $0] },
+                                    notificationsReady: true, condition: condition,
                                     internet: forced ? "Checks paused" : "Connected", mode: HotspotJoinMode(rawValue: session["joinMode"] as? String ?? "Automatic") ?? .unknown, forceMode: forced, setForceMode: { enabled in
                     session["force"] = enabled
                     forced = enabled
@@ -51,24 +53,32 @@ private struct PreviewSettings: View {
                 }
             }
             Divider()
+            if let protectionError { Text(protectionError).font(.system(size: 13)).foregroundStyle(.red).padding(.top, 10) }
             HStack(spacing: 9) {
-                Button("Reset") { draft = NightrCore.Settings(); notifications = true; automaticUpdates = true; numbers.reset(); access.discard() }.buttonStyle(SettingsActionStyle())
+                Button("Reset") {
+                    draft = NightrCore.Settings(); notifications = true; automaticUpdates = true
+                    numbers.reset(); access.discard(); conditionsEdited = false; protectionError = nil
+                }.buttonStyle(SettingsActionStyle())
                 Spacer()
                 Text(saved ? "Saved in preview" : "Local preview").font(.system(size: 11)).foregroundStyle(Color.nightrMuted)
                 Button("Cancel") {
                     access.discard()
                     numbers.reset()
+                    conditionsEdited = false; protectionError = nil
                     draft = Self.settings(session["savedDraft"])
                     notifications = session["savedNotifications"] as? Bool ?? true
                     automaticUpdates = session["savedAutomaticUpdates"] as? Bool ?? true
                     NotificationCenter.default.post(name: .previewCloseSettings, object: nil)
                 }.buttonStyle(SettingsActionStyle())
                 Button("Save") {
+                    do { try draft.validateProtectionSelection(edited: conditionsEdited) }
+                    catch { protectionError = error.localizedDescription; return }
                     access.save()
                     session["savedDraft"] = try? JSONEncoder().encode(draft)
                     session["savedNotifications"] = notifications
                     session["savedAutomaticUpdates"] = automaticUpdates
                     saved = true
+                    conditionsEdited = false; protectionError = nil
                     NotificationCenter.default.post(name: .previewSettingsSaved, object: nil)
                     NotificationCenter.default.post(name: .previewCloseSettings, object: nil)
                 }.buttonStyle(SettingsActionStyle(primary: true)).keyboardShortcut(.defaultAction).disabled(!numbers.invalid.isEmpty)
@@ -104,6 +114,12 @@ private struct PreviewSettings: View {
         }
     }
 
+    private func condition(_ key: WritableKeyPath<NightrCore.Settings, Bool>) -> Binding<Bool> {
+        Binding(get: { draft[keyPath: key] }, set: {
+            draft.setProtectionCondition(key, enabled: $0)
+            conditionsEdited = true; protectionError = nil
+        })
+    }
 }
 
 @MainActor @_cdecl("makeNightrSettingsPreview")

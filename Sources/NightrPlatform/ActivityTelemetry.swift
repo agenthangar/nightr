@@ -171,7 +171,7 @@ actor AgentActivityMonitor {
     private func complete(_ result: AgentProbe?, now: Date) {
         defer { refreshing = false; discardPending = false }
         guard !discardPending, let result else { return }
-        observation = detector.observe(processes: result.processes, assertions: result.assertions, network: result.network, now: now) ? .active : .idle
+        observation = detector.observeState(processes: result.processes, assertions: result.assertions, network: result.network, now: now)
         refreshedAt = now
     }
     static func read() -> AgentProbe? {

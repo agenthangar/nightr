@@ -57,6 +57,57 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(settings.displayOn); XCTAssertEqual(settings.inactivity, 47)
         XCTAssertEqual(try JSONDecoder().decode(Settings.self, from: JSONEncoder().encode(settings)), settings)
     }
+    func testLocalModelCanBeTheOnlyProtectionCondition() throws {
+        var settings = Settings()
+        settings.setProtectionCondition(\.agent, enabled: false)
+        settings.setProtectionCondition(\.internet, enabled: false)
+        XCTAssertThrowsError(try settings.validateProtectionSelection(edited: true))
+        XCTAssertNoThrow(try settings.validateProtectionSelection(edited: false))
+        settings.setProtectionCondition(\.localInference, enabled: true)
+        try settings.validateProtectionSelection(edited: true)
+        var engine = MonitorEngine(settings: settings)
+        _ = engine.handle(.start, now: now)
+        XCTAssertFalse(engine.holding)
+        XCTAssertFalse(engine.verificationEligible)
+        XCTAssertTrue(engine.inferenceEligible)
+        XCTAssertEqual(GUIProtectionSummary(status: .init(engine: engine)).detail, "Waiting for local model activity.")
+
+        let model = LocalModelObservation(id: "sample", residency: .loaded, activity: .generating,
+                                          inferenceExpiresAt: now.addingTimeInterval(10))
+        var sample = MachineSample(activity: .init(runtimes: [.init(runtime: .lmStudio, observedAt: now, models: [model])]))
+        XCTAssertTrue(engine.handle(.tick(sample), now: now).contains(.acquireHold(settings)))
+        XCTAssertTrue(engine.handle(.tick(sample), now: now.addingTimeInterval(10)).contains(.releaseHold))
+        XCTAssertTrue(engine.inferenceEligible)
+        sample.activity?.runtimes[0].observedAt = now.addingTimeInterval(12)
+        sample.activity?.runtimes[0].models[0].inferenceExpiresAt = now.addingTimeInterval(22)
+        XCTAssertTrue(engine.handle(.tick(sample), now: now.addingTimeInterval(12)).contains(.acquireHold(settings)))
+        XCTAssertTrue(engine.handle(.stop, now: now.addingTimeInterval(13)).contains(.releaseHold))
+        _ = engine.handle(.tick(sample), now: now.addingTimeInterval(14))
+        XCTAssertFalse(engine.holding)
+
+        settings.requirement = .none
+        var legacy = MonitorEngine(settings: settings)
+        XCTAssertTrue(legacy.handle(.start, now: now).contains(.acquireHold(settings)))
+        settings.requirement = .all
+        settings.setProtectionCondition(\.localInference, enabled: false)
+        XCTAssertThrowsError(try settings.validateProtectionSelection(edited: true))
+    }
+
+    func testPendingAgentCheckIsVisibleWithoutReportingAnActiveAgent() {
+        var settings = Settings()
+        settings.internet = false
+        var state = ControllerState()
+        state.desiredEnabled = true
+        state.pause = nil
+        var engine = MonitorEngine(settings: settings, state: state, sample: .init(agentObservation: .checking))
+        let pending = GUIProtectionSummary(status: .init(engine: engine))
+        XCTAssertEqual(pending.label, "Checking…")
+        XCTAssertFalse(pending.showsActiveAgent)
+        _ = engine.handle(.beginForce, now: now)
+        let forced = GUIProtectionSummary(status: .init(engine: engine))
+        XCTAssertEqual(forced.label, "Force mode")
+        XCTAssertFalse(forced.showsActiveAgent)
+    }
     func testStrictSettingsAndExactSSID() throws {
         for json in ["{\"every\":true}", "{\"every\":0}", "{\"retries\":11}", "{\"hotspot_attempts\":0}", "{\"unknown\":1}", "{\"requirement\":0}"] {
             XCTAssertThrowsError(try JSONDecoder().decode(Settings.self, from: Data(json.utf8)), json)

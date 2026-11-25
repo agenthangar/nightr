@@ -235,15 +235,21 @@ test('Settings hash links select a focused section without editing or saving val
 
 });
 test('App checkboxes map every selection to all-selected policy on intentional edits', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('protection');P.appCheckToggle('agent',false);assert.equal(ui().settingsDraft.checks,'internet');assert.equal(ui().settingsDraft.require,'all');P.appCheckToggle('internet',false);assert.equal(ui().settingsDraft.checks,'');assert.equal(ui().settingsErrors.checks,'Select agent activity or internet availability.');assert.equal(P.appSettingsSave(),false);P.appCheckToggle('agent',true);assert.equal(ui().settingsDraft.checks,'agent');P.appCheckToggle('internet',true);assert.equal(ui().settingsDraft.checks,'agent,internet');assert.equal(ui().settingsDraft.require,'all');assert.equal(P.appSettingsSave(),true);
+ P.reset();P.appSettingsOpen();P.appSettingsTab('protection');P.appCheckToggle('agent',false);assert.equal(ui().settingsDraft.checks,'internet');assert.equal(ui().settingsDraft.require,'all');P.appCheckToggle('internet',false);assert.equal(ui().settingsDraft.checks,'');assert.equal(ui().settingsErrors.checks,'Select at least one protection condition.');assert.equal(P.appSettingsSave(),false);P.appCheckToggle('agent',true);assert.equal(ui().settingsDraft.checks,'agent');P.appCheckToggle('internet',true);assert.equal(ui().settingsDraft.checks,'agent,internet');assert.equal(ui().settingsDraft.require,'all');assert.equal(P.appSettingsSave(),true);
 });
 test('Imported CLI policy survives unrelated Save and changes only after a checkbox edit', () => {
  for(const requirement of ['1','2','none']){P.reset();P.act('save-cli',{...get().settings,require:requirement});P.appSettingsOpen();P.appSettingsTab('protection');assert(!elements.get('content').innerHTML.includes('Custom CLI policy retained'));assert(!elements.get('content').innerHTML.includes('Both must apply.'));P.appSettingsTab('general');P.appSettingsEdit('login',false);P.appSettingsTab('advanced');P.appSettingsTab('protection');assert.equal(ui().settingsDraft.require,requirement);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.require,requirement);
  P.appSettingsOpen();P.appCheckToggle('internet',false);assert.equal(ui().settingsDraft.checks,'agent');assert.equal(ui().settingsDraft.require,'all');assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.require,'all');}
 });
+test('A local model can be the only enabled Protection rule', () => {
+ P.reset();P.appSettingsOpen();P.appSettingsTab('protection');P.appCheckToggle('agent',false);P.appCheckToggle('internet',false);
+ P.appSettingsEdit('localInference',true);assert.equal(ui().settingsErrors.checks,undefined);assert.equal(P.appSettingsSave(),true);
+ assert.equal(get().settings.checks,'');assert.equal(get().settings.localInference,true);
+ P.appSettingsOpen();P.appSettingsEdit('localInference',false);assert.equal(P.appSettingsSave(),false);
+});
 test('Legacy empty checks stay untouched on unrelated Save, newly empty choices require Until stopped', () => {
  P.reset();P.act('save-cli',{...get().settings,checks:'',require:'none'});P.appSettingsOpen();P.appSettingsEdit('notifications',false);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.checks,'');assert.equal(get().settings.require,'none');
- P.appSettingsOpen();P.appCheckToggle('agent',true);P.appCheckToggle('agent',false);assert.equal(P.appSettingsSave(),false);assert.equal(ui().settingsErrors.checks,'Select agent activity or internet availability.');P.appSettingsEdit('forever',true);assert.equal(ui().settingsErrors.checks,undefined);P.appSettingsEdit('forever',false);assert.equal(ui().settingsErrors.checks,'Select agent activity or internet availability.');P.appSettingsEdit('forever',true);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.checks,'');assert.equal(get().settings.forever,true);
+ P.appSettingsOpen();P.appCheckToggle('agent',true);P.appCheckToggle('agent',false);assert.equal(P.appSettingsSave(),false);assert.equal(ui().settingsErrors.checks,'Select at least one protection condition.');P.appSettingsEdit('forever',true);assert.equal(ui().settingsErrors.checks,undefined);P.appSettingsEdit('forever',false);assert.equal(ui().settingsErrors.checks,'Select at least one protection condition.');P.appSettingsEdit('forever',true);assert.equal(P.appSettingsSave(),true);assert.equal(get().settings.checks,'');assert.equal(get().settings.forever,true);
 });
 test('Until stopped dims checks without dropping selection and restores them when off', () => {
  P.reset();P.appSettingsOpen();P.appCheckToggle('internet',false);P.appSettingsEdit('forever',true);P.appSettingsTab('protection');let markup=elements.get('content').innerHTML;assert(markup.includes('data-app-check="agent"'));assert.equal(P.settingDisabled('checks'),true);assert.equal(ui().settingsDraft.checks,'agent');assert.equal(P.settingDisabled('batteryProtection'),false);P.appSettingsTab('advanced');P.appSettingsTab('protection');P.appSettingsEdit('forever',false);assert.equal(P.settingDisabled('checks'),false);assert.equal(ui().settingsDraft.checks,'agent');P.appSettingsCancel();assert.equal(get().settings.checks,'agent,internet');
@@ -388,7 +394,7 @@ test('Invalid hotspot attempt limits cannot save and do not change the active bu
  for(const limit of [0,11,1.5,'',NaN]){P.reset();P.appSettingsOpen();P.appSettingsEdit('hotspotAttempts',limit);assert.equal(P.appSettingsSave(),false);assert.equal(get().settings.hotspotAttempts,3);P.appSettingsCancel();}
 });
 test('macOS sample profiles distinguish Automatic Ask-only and unknown auto-join', () => {
- P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');for(const [profile,label]of [['unknown','Unknown'],['setup','Ask to Join'],['eligible','Automatic'],['ask','Ask'],['earlier','Ask']]){P.setMacProfile(profile);const markup=elements.get('content').innerHTML;assert(markup.includes(label));assert.equal((markup.match(/data-hotspot-mode/g)||[]).length,1);assert(!markup.includes('Details…'));assert(!markup.includes('Setup…'));}
+ P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');for(const [profile,label]of [['unknown','Open Wi-Fi Settings…'],['setup','Ask to Join'],['eligible','Automatic'],['ask','Ask'],['earlier','Ask']]){P.setMacProfile(profile);const markup=elements.get('content').innerHTML;assert(markup.includes(label));assert.equal((markup.match(/data-hotspot-mode/g)||[]).length,1);assert(!markup.includes('Details…'));assert(!markup.includes('Setup…'));}
  assert.equal(P.credentialStatus('Sample iPhone'),'Password saved');assert.equal(P.credentialSecurity('Studio Wi-Fi'),'open');assert.equal(get().settings.ssid,'Sample iPhone');
 });
 test('Saved list selections use Keychain metadata without password controls', () => {
@@ -457,11 +463,12 @@ test('Nearby Open never authorizes deleting an existing Keychain entry', () => {
 });
 test('Only confirmed connectivity values display a green check and label', () => {
  P.reset();P.appSettingsOpen();P.appSettingsTab('connectivity');
- for(const [profile,label,confirmed] of [['eligible','Automatic',true],['ask','Ask to Join',false],['unknown','Unknown',false],['unavailable','Unavailable',false]]) {
+ for(const [profile,label,confirmed] of [['eligible','Automatic',true],['ask','Ask to Join',false],['unknown',null,false],['unavailable',null,false]]) {
    P.setMacProfile(profile);const markup=elements.get('content').innerHTML;
-   const status=markup.split('data-hotspot-mode>')[1].split('<button')[0];
-   assert(status.includes('data-confirmed="'+confirmed+'"'));assert.equal(status.includes('class="ds-check"'),confirmed);
-   assert(status.includes(label));assert(!status.includes('type="checkbox"'));
+   const row=markup.split('data-hotspot-mode>')[1].split('</fieldset>')[0];
+   if(label){assert(row.includes('data-confirmed="'+confirmed+'"'));assert(row.includes(label));}
+   else {assert(row.includes('Open Wi-Fi Settings…'));assert(!row.includes('data-confirmed'));}
+   assert.equal(row.includes('class="ds-check"'),confirmed);assert(!row.includes('type="checkbox"'));
  } P.appSettingsCancel();
 });
 test('Auto-join marks follow the setting independently of Instant Hotspot eligibility', () => {

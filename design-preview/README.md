@@ -127,7 +127,8 @@ or Wi-Fi operation runs.
 
 Connectivity shows **Internet access** and **Ask to join hotspots** at the top.
 An Automatic preference gets a green circled check and green text. A separate
-Wi-Fi Settings action sits beside the reported value. The browser simulates
+Wi-Fi Settings action sits beside the reported value. When the mode is unavailable,
+the row offers the named Wi-Fi Settings action. The browser simulates
 that action. Normal-wake recovery and its safety checks remain available.
 The outer workbench discloses that the preview does not read macOS settings.
 Settings scrolls only its content, leaving header/footer outside that pane.
@@ -169,7 +170,7 @@ checks and explicitly rejects removed network-wake controls and fixture fields.
 No fresh browser verification is claimed for this bounded removal; the previous
 content-scroll and light/dark palette checks remain applicable.
 
-A newly edited empty Automatic selection blocks Save with “Select agent activity or internet availability.” Imported empty configurations are retained on unrelated Save.
+A newly edited empty Automatic selection blocks Save with “Select at least one protection condition.” Imported empty configurations are retained on unrelated Save.
 Cancel discards the full draft and Reset explicitly stages defaults. Disabling
 the battery option keeps the cutoff; it releases the hold on unsafe battery power
 and resumes on AC or sufficient charge, without forcing the Mac to sleep.
@@ -186,9 +187,10 @@ controller or actual CLI. It reads no live configuration or model content and
 makes no requests to live services and performs no storage writes or system actions.
 
 The 318px popover shows the desktop icon, protection state, Start or Stop
-and a separate Force mode action. Two compact model/runtime rows appear below the actions; **All 4…** reveals the
+and a separate Force mode action. Two compact model/runtime rows appear below the actions; **All 3…** reveals the
 remaining observations. Generating, loaded idle, loaded with unknown activity,
-inventory only and expired observations stay distinct. Each row opens a plain
+and expired observations stay distinct. Inventory-only entries stay in the
+sample diagnostics and are omitted from the pane. Each row opens a plain
 details dialog with current state/runtime and useful reported Memory, Context
 window and Time generating/rate values only when known. Unverified observations
 do not acquire a current loaded state or rate. Escape returns focus to the row.

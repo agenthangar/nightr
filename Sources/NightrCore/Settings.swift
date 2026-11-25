@@ -109,6 +109,16 @@ public struct Settings: Codable, Equatable, Sendable {
         return left == right
     }
     public var monitoring: Bool { !forever && requirement != .none && (agent || internet) }
+    public var requiresLocalInference: Bool { !forever && requirement != .none && !agent && !internet && localInference }
+    public mutating func setProtectionCondition(_ key: WritableKeyPath<Self, Bool>, enabled: Bool) {
+        self[keyPath: key] = enabled
+        if key != \.localInference || (!agent && !internet && localInference) { requirement = .all }
+    }
+    public func validateProtectionSelection(edited: Bool) throws {
+        if edited && !forever && !agent && !internet && !localInference {
+            throw SettingsError.invalid("Select at least one protection condition.")
+        }
+    }
     public func conditionsPass(agentActive: Bool, internetVerified: Bool) -> Bool {
         guard monitoring else { return true }
         let selected = [(agent, agentActive), (internet, internetVerified)].filter(\.0)
