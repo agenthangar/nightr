@@ -158,3 +158,14 @@ repository files and never launches the native app, host or controller. Native
 MCP behavior is tested separately using isolated synthetic state. Real host
 installation and a clean signed-app workflow remain acceptance steps once a
 matching release exists.
+
+To inspect the protocol and run its isolated checks from a source checkout:
+
+```sh
+swift build --product nightr-native
+python3 scripts/preview_mcp.py --binary .build/debug/nightr-native
+python3 scripts/check_mcp.py --binary .build/debug/nightr-native
+```
+
+The preview shows discovery and tool definitions. The checks use a fake
+backend and a bounded stdio harness.

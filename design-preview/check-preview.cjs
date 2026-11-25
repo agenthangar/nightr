@@ -489,4 +489,32 @@ test('Every surface renders offline and preserves selected icon family', () => {
  assert(html.includes('Build with agents.<br>On your own hardware.'));
  assert(html.includes('viewBox="0 0 28 28"'));
 });
+test('The README banner links to the same native capture used on the product site', () => {
+ const root = path.join(__dirname, '..');
+ const sitePage = fs.readFileSync(path.join(root, 'site', 'index.html'), 'utf8');
+ const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+ const siteScreenshots = [...sitePage.matchAll(/\bsrc="(assets\/screenshots\/[\w-]+\.png)"/g)]
+  .map(([, asset]) => `site/${asset}`);
+ const readmeScreenshots = [...readme.matchAll(/\bhref="(site\/assets\/screenshots\/[\w-]+\.png)"/g)]
+  .map(([, asset]) => asset);
+ assert(siteScreenshots.length > 0);
+ assert.deepEqual(readmeScreenshots, siteScreenshots);
+ const banner = 'docs/assets/readme-banner.png';
+ assert(readme.includes(`<img src="${banner}"`));
+ for (const asset of [...siteScreenshots, banner]) {
+  const png = fs.readFileSync(path.join(root, asset));
+  assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', asset);
+ }
+});
+test('Public installation instructions show direct download and Homebrew', () => {
+ const root = path.join(__dirname, '..');
+ const sitePage = fs.readFileSync(path.join(root, 'site', 'index.html'), 'utf8');
+ const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+ for (const copy of [sitePage, readme]) {
+  assert(copy.includes('brew install --cask agenthangar/tap/nightr'));
+  assert(copy.includes('https://github.com/agenthangar/nightr/releases'));
+  assert(!/\bt (?:install|system apps install)\b/.test(copy));
+ }
+ assert(!/class="(?:wrap strip|index)"|A quiet companion for long runs/.test(sitePage));
+});
 console.log(`\n${checks} preview checks passed. Inline syntax and offline constraints passed.`);
