@@ -95,6 +95,31 @@ final class GUIRoutingTests: XCTestCase {
             XCTAssertEqual(GUIProtectionSummary(status: forcedStatus).internet, "Checks paused")
         }
     }
+    func testPendingDiagnosticsDoNotClaimAnActiveAgentOrVerifiedInternet() {
+        let initial = GUIProtectionSummary(status: nil)
+        XCTAssertEqual(initial.label, "Checking…")
+        XCTAssertEqual(initial.internet, "Checking…")
+        XCTAssertFalse(initial.showsActiveAgent)
+
+        var state = ControllerState()
+        state.desiredEnabled = true
+        state.pause = nil
+        state.internet = .checking
+        let sample = MachineSample(agentObservation: .checking)
+        let pending = GUIProtectionSummary(status: ControllerStatus(engine: MonitorEngine(state: state, sample: sample)))
+        XCTAssertEqual(pending.internet, "Checking…")
+        XCTAssertFalse(pending.showsActiveAgent)
+        XCTAssertEqual(pending.detail, "Checking internet and agent activity.")
+
+        state.internet = .verified
+        let previous = ControllerStatus(engine: MonitorEngine(state: state, sample: sample))
+        XCTAssertEqual(GUIProtectionSummary(status: previous).detail, "Checking for agent activity.")
+        XCTAssertEqual(GUIProtectionSummary(status: previous, error: "Controller status unavailable").internet, "Not checked")
+
+        state.pause = .asleep
+        let asleep = ControllerStatus(engine: MonitorEngine(state: state, sample: sample))
+        XCTAssertEqual(GUIProtectionSummary(status: asleep).internet, "Checks paused")
+    }
     func testCommittedSettingsBytesRemainAnExactConflictBaseline() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("nightr-save-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

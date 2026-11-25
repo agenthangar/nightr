@@ -24,6 +24,15 @@ final class PresentationTests: XCTestCase {
         XCTAssertEqual(MoonSparkArtwork.activeMenuImage.size, MoonSparkArtwork.menuImage.size)
         XCTAssertNotEqual(MoonSparkArtwork.activeMenuImage.tiffRepresentation, MoonSparkArtwork.menuImage.tiffRepresentation)
     }
+    @MainActor func testMenuArtworkTracksAnActualHoldRatherThanEnabledIntent() {
+        var state = ControllerState()
+        state.desiredEnabled = true
+        let engine = MonitorEngine(state: state)
+        let pending = GUIProtectionSummary(status: ControllerStatus(engine: engine, holding: false))
+        let active = GUIProtectionSummary(status: ControllerStatus(engine: engine, holding: true))
+        XCTAssertTrue(MoonSparkArtwork.menuImage(for: pending) === MoonSparkArtwork.menuImage)
+        XCTAssertTrue(MoonSparkArtwork.menuImage(for: active) === MoonSparkArtwork.activeMenuImage)
+    }
     #if DEBUG
     @MainActor func testActualNativeViewsRenderWithSyntheticData() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("nightr-presentations-" + UUID().uuidString)
