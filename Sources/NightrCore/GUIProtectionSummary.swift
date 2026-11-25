@@ -12,7 +12,9 @@ public struct GUIProtectionSummary {
         if let status, error == nil, status.forceMode != true, status.state.pause != .asleep, status.state.pause != .maintenanceWake {
             showsActiveAgent = status.sample.agentObservation.map { $0 == .active } ?? status.sample.agentActive
         } else { showsActiveAgent = false }
-        if status?.forceMode == true {
+        if error != nil {
+            internet = "Not checked"
+        } else if status?.forceMode == true || status?.state.pause == .asleep || status?.state.pause == .maintenanceWake {
             internet = "Checks paused"
         } else {
             switch status?.state.internet {
@@ -21,7 +23,7 @@ public struct GUIProtectionSummary {
             case .unavailable: internet = "Unavailable"
             case .stale: internet = "Stale observation"
             case .unknown: internet = "Not checked"
-            case nil: internet = error == nil ? "Checking…" : "Not checked"
+            case nil: internet = "Checking…"
             }
         }
         guard let status else {
@@ -52,7 +54,8 @@ public struct GUIProtectionSummary {
         } else if !status.state.desiredEnabled {
             label = "Off"; symbol = "minus.circle"; detail = "Protection is stopped. Start when you’re ready."
         } else if status.state.internet == .checking {
-            label = "Recovering"; symbol = "arrow.clockwise"; detail = "Checking internet before protection can resume."
+            label = "Recovering"; symbol = "arrow.clockwise"
+            detail = checkingAgent ? "Checking internet and agent activity." : "Checking internet before protection can resume."
         } else if status.state.pause == nil && checkingAgent && status.forceMode != true {
             label = "Checking…"; symbol = "clock"; detail = "Checking for agent activity."
         } else {
