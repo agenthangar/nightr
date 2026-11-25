@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nightr — You sleep. Your agents don't.</title>
+<title>Nightr | You sleep. Your agents don't.</title>
 <meta name="description" content="A macOS menu bar app and standalone CLI for keeping your Mac awake during coding-agent work. Open source, with battery and connectivity controls.">
 <meta name="theme-color" content="#141516"><link rel="canonical" href="https://nightr.ai/">
-<meta property="og:title" content="Nightr — You sleep. Your agents don't."><meta property="og:description" content="Keep your Mac awake for coding-agent work. App + standalone CLI. Open source."><meta property="og:type" content="website"><meta property="og:url" content="https://nightr.ai/">
+<meta property="og:title" content="Nightr | You sleep. Your agents don't."><meta property="og:description" content="Keep your Mac awake for coding-agent work. App + standalone CLI. Open source."><meta property="og:type" content="website"><meta property="og:url" content="https://nightr.ai/">
 <link rel="icon" type="image/svg+xml" href="assets/moon-spark.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -12,24 +12,48 @@
 <a class="skip" href="#main">Skip to content</a>
 <header class="wrap nav"><a class="brand" href="./"><img src="assets/moon-spark.svg" width="28" height="28" alt=""><span>nightr</span></a><nav aria-label="Primary"><a href="#features">What it does</a><a href="#install">Install</a><a href="https://github.com/agenthangar/nightr">GitHub ↗</a></nav></header>
 <main id="main"><section class="wrap hero"><div>
-<p class="eyebrow">For work that runs after dark</p><h1>You sleep.<br>Your agents <em>don’t.</em></h1>
-<p class="lede">Keep your Mac awake for coding-agent work. Know when it’s protected, watch your battery, and give connection recovery clear limits.</p>
+<h1>You sleep.<br>Your agents <em>don’t.</em></h1>
+<p class="lede">When you close the lid, Nightr can dim the display or lock the screen. It can also let your Mac sleep at a battery level you choose and try a saved hotspot if the internet drops.</p>
 <div class="actions"><a class="button" href="https://github.com/agenthangar/nightr">View source ↗</a><a href="#cli">Meet the CLI ↓</a></div>
-<p class="meta">Pre-release · macOS 13+ · Apple Silicon + Intel<br>App + standalone CLI. No t installation required.</p>
-</div><figure class="app-visual"><div class="menubar"><span>●</span><span><img src="assets/moon-spark.svg" width="28" height="28" alt=""> Wed 9:41</span></div><div class="app-card"><div class="app-title"><img src="assets/moon-spark.svg" width="28" height="28" alt=""><strong>Nightr</strong><span class="sample">UI SAMPLE</span></div><div class="status"><span class="status-dot">●</span><div><strong>On</strong><p>Keeping your Mac awake</p></div></div><dl><div><dt>Agent activity</dt><dd>Active</dd></div><div><dt>Internet</dt><dd>Verified</dd></div><div><dt>Power</dt><dd>Connected to AC</dd></div></dl><div class="sample-action">Stop</div><div class="sample-settings">Settings… <span>⌘,</span></div></div><figcaption>Illustrative app state · no monitoring runs on this page.</figcaption></figure></section>
-<div class="wrap strip"><span>01 / ONE SHARED RUN</span><span>02 / BATTERY COMES FIRST</span><span>03 / YOUR MAC. YOUR CONTROL.</span></div>
-<section class="wrap section" id="features" aria-labelledby="features-title"><p class="eyebrow" id="features-title">A quiet companion for long runs</p><div class="features"><article><span class="index">01 / AWAKE, ON PURPOSE</span><h2>Keep the work going.</h2><p>App and CLI share one run. Choose automatic activity and internet checks, or keep awake until you stop. An explicit Stop stays stopped after wake and login.</p></article><article><span class="index">02 / KNOW WHEN TO PAUSE</span><h2>Protect the battery, too.</h2><p>Set a battery cutoff. Protection pauses below it and can resume when power is safe. See configured intent separately from the Mac’s observed state.</p></article><article><span class="index">03 / A BOUNDED WAY BACK</span><h2>A fallback, with limits.</h2><p>Configure saved-hotspot fallback with a limited number of attempts. Internet verification is separate from Wi-Fi association. Coding agents manage their own reconnections.</p></article></div></section>
-<section class="wrap section cli" id="cli"><div><p class="eyebrow">Same control. Your terminal.</p><h2>A small command.<br>A clear answer.</h2><p>First-run readiness belongs in <code>nightr setup</code>. Everyday preferences belong in <code>nightr config</code>. Read status without changing a thing.</p><p class="meta">Existing nosleep invocations remain compatible.</p></div><div class="terminal"><span class="terminal-label">CLI EXAMPLE · PRE-RELEASE</span><pre><code><span>$ nightr setup</span>
+</div>
+<figure class="app-visual">
+  <img src="assets/screenshots/popover-on-dark.png" width="636" height="1238"
+       alt="Nightr menu bar pane showing active protection, local models, and CPU and GPU activity">
+</figure>
+</section>
+<section class="wrap section features" id="features" aria-label="What Nightr does">
+  <article>
+    <h2>Keep work running</h2>
+    <p>Choose when your Mac stays awake. Nightr can watch for <strong>active agents, local model generation, and internet access</strong>.</p>
+  </article>
+  <article>
+    <h2>Save your battery</h2>
+    <p>Set a <strong>battery cutoff</strong>. Below that level, Nightr lets your Mac sleep. Protection can resume when you plug in.</p>
+  </article>
+  <article>
+    <h2>Get back online</h2>
+    <p>If your connection drops, Nightr can try a <strong>saved hotspot</strong>. You set the attempt limit, and Nightr checks whether you’re back online.</p>
+  </article>
+</section>
+<section class="wrap section cli" id="cli"><div><h2>Control Nightr from the terminal</h2><p>Run <code>nightr setup</code> to authorize the helper and <code>nightr config</code> to edit your preferences. The CLI and menu bar app share settings and protection status.</p><p class="meta">Existing nosleep invocations remain compatible.</p></div><div class="terminal"><span class="terminal-label">CLI EXAMPLE</span><pre><code><span>$ nightr setup</span>
 <span>$ nightr config</span>
 
 <span>$ nightr start</span>
 <span>$ nightr status --json</span>
 <span>$ nightr stop</span></code></pre></div></section>
-<section class="wrap section install" id="install"><div><p class="eyebrow">Getting ready for your Mac</p><h2>App + CLI.<br>One package.</h2><p>The planned signed, notarized release bundles the app, CLI and runtime. No Xcode or separate Python installation. First-time setup asks explicitly for power-helper authorization.</p><p><strong>Pre-release:</strong> no signed installer is available yet. Follow the source and releases for availability.</p><div class="actions"><a class="button" href="https://github.com/agenthangar/nightr/releases">View releases ↗</a><a href="https://github.com/agenthangar/nightr">View source ↗</a></div></div><div class="terminal"><span class="terminal-label">PLANNED INSTALL · NOT YET AVAILABLE</span><pre><code># With Homebrew
-brew install --cask agenthangar/tap/nightr
-
-# Or through t
-t install nightr</code></pre><p>Direct download: open the DMG and run its signed package installer. The same app and CLI, with explicit setup authorization.</p></div></section>
-<aside class="wrap limits"><p>Nightr cannot keep work running through system sleep or turn on a phone’s hotspot remotely. Apple Instant Hotspot and Auto-Join are separate macOS features.</p></aside></main>
-<footer class="wrap footer"><a class="brand" href="./"><img src="assets/moon-spark.svg" width="28" height="28" alt=""><span>nightr</span></a><a href="https://agenthangar.ai/">An AgentHangar tool ↗</a><span>Open source · MIT</span></footer>
+<section class="wrap section install" id="install">
+  <div>
+    <h2>Install Nightr</h2>
+    <p>The macOS installer includes the app, CLI and runtime. Run <code>nightr setup</code> after installation to authorize the power helper.</p>
+    <div class="actions"><a class="button" href="https://github.com/agenthangar/nightr/releases">View releases ↗</a></div>
+  </div>
+  <div class="install-methods">
+    <h3>Direct download</h3>
+    <p>Open the signed DMG and run the included installer.</p>
+    <h3>Homebrew</h3>
+    <pre><code>brew install --cask agenthangar/tap/nightr</code></pre>
+  </div>
+</section>
+</main>
+<footer class="wrap footer"><a class="brand" href="./"><img src="assets/moon-spark.svg" width="28" height="28" alt=""><span>nightr</span></a><a href="https://agenthangar.ai/">An AgentHangar tool ↗</a><span>MIT license</span></footer>
 </body></html>
