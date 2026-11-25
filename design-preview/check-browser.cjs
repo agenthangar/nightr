@@ -78,10 +78,14 @@ async function run() {
           for(const option of await pane.getByRole('group',{name:'Keep Mac awake'}).getByRole('checkbox').all()) assert(await option.isEnabled());
         }
       }
-      for (const [profile, expected, confirmed] of [['eligible','Automatic',true],['ask','Ask to Join',false],['unknown','Unknown',false]]) {
+      for (const [profile, expected, confirmed] of [['eligible','Automatic',true],['ask','Ask to Join',false],['unknown',null,false],['unavailable',null,false]]) {
         await page.evaluate(p => NightrPreview.setMacProfile(p),profile);
         const status = page.locator('[data-hotspot-mode] .ds-status');
-        assert((await status.textContent()).includes(expected));
+        if (expected) assert((await status.textContent()).includes(expected));
+        else {
+          assert.equal(await status.count(),0);
+          assert(await page.getByText('Open Wi-Fi Settings…',{exact:true}).isVisible());
+        }
         assert.equal(await status.locator('.ds-check').count(),Number(confirmed));
         if (confirmed) {
           const ink = el => getComputedStyle(el).color;
@@ -140,6 +144,12 @@ async function run() {
       assert(!(await sheet.isVisible()));
     }
     await page.goto(base + '/activity.html');
+    await page.locator('#all-models').click();
+    assert.equal(await page.locator('.model-list [data-model-key]').count(),3);
+    await page.evaluate(()=>ActivityPreview.scenario('mlx'));
+    assert.equal(await page.locator('.model-list [data-model-key]').count(),0);
+    assert(await page.locator('.local-models').getByText('No loaded models reported').isVisible());
+    await page.evaluate(()=>ActivityPreview.event('reset'));
     const anchors=()=>page.locator('.native-brand,.status-title,.pane-actions button,.models-heading').evaluateAll(nodes=>nodes.map(el=>{
       const {x,y,width,height}=el.getBoundingClientRect();
       return [x,y,el.matches('.status-title')?0:width,height];

@@ -1,4 +1,5 @@
 import Foundation
+import NightrCore
 
 /// Mirrors the extracted detector's useful signals: Claude's child assertion,
 /// known desktop assertions and per-socket growth. Process existence and CPU do
@@ -31,6 +32,9 @@ public struct AgentActivity {
         return ["-x", "-n", "-s", "1", "-L", "1"] + filters + ["-J", "bytes_in,bytes_out"]
     }
     public mutating func observe(processes: String, assertions: String, network: String, now: Date) -> Bool {
+        observeState(processes: processes, assertions: assertions, network: network, now: now) == .active
+    }
+    mutating func observeState(processes: String, assertions: String, network: String, now: Date) -> AgentObservation {
         let rows = Self.processes(processes)
         let agents = Set(rows.filter { Self.isAgent($0.command) }.map(\.pid))
         let claude = Set(rows.filter { ($0.command as NSString).lastPathComponent == "claude" }.map(\.pid))
@@ -58,7 +62,8 @@ public struct AgentActivity {
             let elapsed = max(1, now.timeIntervalSince(previous))
             if Double(moved[pid, default: 0]) >= max(49_152, 1_024 * elapsed) { active = true }
         }
+        let checking = agents.contains { timestamps[$0] == nil }
         sockets = nextSockets; timestamps = Dictionary(uniqueKeysWithValues: agents.map { ($0, now) })
-        return active
+        return active ? .active : checking ? .checking : .idle
     }
 }

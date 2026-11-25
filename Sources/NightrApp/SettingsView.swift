@@ -185,7 +185,10 @@ struct SettingsView: View {
         if !Task.isCancelled { notificationStatus = settings.authorizationStatus }
     }
     private func condition(_ key: WritableKeyPath<NightrCore.Settings, Bool>) -> Binding<Bool> {
-        Binding(get: { draft[keyPath: key] }, set: { draft[keyPath: key] = $0; draft.requirement = .all; conditionsEdited = true })
+        Binding(get: { draft[keyPath: key] }, set: {
+            draft.setProtectionCondition(key, enabled: $0)
+            conditionsEdited = true
+        })
     }
     private func load() {
         guard !loaded else { return }
@@ -204,7 +207,7 @@ struct SettingsView: View {
         do {
             guard numbers.invalid.isEmpty else { throw SettingsError.invalid("Correct the highlighted integer fields before saving.") }
             try draft.validate()
-            guard draft.forever || !conditionsEdited || draft.agent || draft.internet else { throw SettingsError.invalid("Select agent activity or internet availability.") }
+            try draft.validateProtectionSelection(edited: conditionsEdited)
             let enabling = draft.launchAtLogin && !original.launchAtLogin
             let disabling = !draft.launchAtLogin && (original.launchAtLogin || pendingLoginRemoval)
             if enabling {

@@ -169,7 +169,7 @@ struct NetworkChooser: View {
                 }
                 else {
                     if currentCredential == .authorization { Text("Saved password needs access repair in Settings.").font(.system(size: 13)).foregroundStyle(Color.nightrMuted) }
-                    settingsRow("Password", hint: source == .nearby ? "Checked when joining." : nil) {
+                    settingsRow("Password", hint: source == .nearby ? "Verified on the first connection attempt." : nil) {
                         settingsField(width: inputWidth, accented: true) {
                             Image(systemName: "key.fill").foregroundStyle(Color.nightrAmber).accessibilityHidden(true)
                             NativePasswordField(input: password, label: "Password for \(name)")

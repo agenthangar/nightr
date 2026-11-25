@@ -95,7 +95,7 @@ final class ActivityTelemetryTests: XCTestCase {
         let observer = LocalRuntimeObserver(fetch: { endpoint in
             guard endpoint == .lmStudioModels else { throw NativeOperationError.unavailable }
             return response(#"{"models":[{"key":"synthetic/loaded","display_name":"Synthetic Loaded","size_bytes":9000,"max_context_length":100000,"loaded_instances":[{"id":"private-instance","config":{"context_length":4096}}]},{"key":"synthetic/available","size_bytes":8000,"loaded_instances":[]}]}"#)
-        })
+        }, lmStudioProcesses: { nil })
         let result = await observer.observe(now: Date())
         let runtime = try XCTUnwrap(result.first)
         XCTAssertEqual(runtime.runtime, .lmStudio)
@@ -103,6 +103,39 @@ final class ActivityTelemetryTests: XCTestCase {
         XCTAssertEqual(runtime.models[0].contextTokens, 4096)
         XCTAssertEqual(runtime.models[0].name, "Synthetic Loaded")
         XCTAssertTrue(runtime.models.allSatisfy { $0.memoryBytes == nil && $0.activity == .unknown })
+    }
+
+    func testLMStudioOnlyReportsActivityForLoadedLocalInstances() async throws {
+        let runtime = response("""
+        {"models":[{"key":"idle","loaded_instances":[{}]},
+                   {"key":"active","loaded_instances":[{}]},
+                   {"key":"prompt","loaded_instances":[{}]},
+                   {"key":"remote","loaded_instances":[{}]},
+                   {"key":"available","loaded_instances":[]}]}
+        """)
+        let now = Date()
+        let observer = LocalRuntimeObserver(fetch: { endpoint in
+            guard endpoint == .lmStudioModels else { throw NativeOperationError.unavailable }
+            return runtime
+        }, lmStudioProcesses: {
+            Data("""
+            [{"type":"llm","deviceIdentifier":null,"modelKey":"idle","status":"idle"},
+             {"type":"llm","deviceIdentifier":null,"modelKey":"active","status":"idle"},
+             {"type":"llm","deviceIdentifier":null,"modelKey":"active","status":"generating"},
+             {"type":"llm","deviceIdentifier":null,"modelKey":"prompt","status":"processingPrompt"},
+             {"type":"llm","deviceIdentifier":"sample-remote","modelKey":"remote","status":"generating"},
+             {"type":"llm","modelKey":"remote","status":"generating"},
+             {"type":"embedding","deviceIdentifier":null,"modelKey":"remote","status":"generating"},
+             {"type":"llm","deviceIdentifier":null,"modelKey":"available","status":"generating"}]
+            """.utf8)
+        })
+        let runtimes = await observer.observe(now: now)
+        let models = try XCTUnwrap(runtimes.first).models
+        XCTAssertEqual(models.map(\.activity), [.idle, .generating, .processing, .unknown, .unknown])
+        XCTAssertTrue(models.allSatisfy { $0.tokensPerSecond == nil })
+        let observation = ActivityObservation(runtimes: runtimes)
+        XCTAssertTrue(observation.hasActiveInference(at: now))
+        XCTAssertFalse(observation.hasActiveInference(at: now.addingTimeInterval(15)))
     }
 
     func testLlamaInventoryRequiresIdentityAndIgnoresPromptsPathsAndArguments() async throws {
@@ -214,7 +247,7 @@ final class ActivityTelemetryTests: XCTestCase {
         let gate = DispatchSemaphore(value: 0), calls = Counter()
         let monitor = AgentActivityMonitor(probe: {
             _ = calls.increment(); gate.wait()
-            return AgentProbe(processes: "100 1 /usr/local/bin/codex\n200 1 /bin/zsh", assertions: "", network: "")
+            return AgentProbe(processes: "200 1 /bin/zsh", assertions: "", network: "")
         })
         let now = Date(), started = Date()
         let first = await monitor.snapshot(now: now)
@@ -232,6 +265,18 @@ final class ActivityTelemetryTests: XCTestCase {
         let stale = await monitor.snapshot(now: now.addingTimeInterval(16))
         XCTAssertEqual(stale, .checking)
         gate.signal()
+    }
+
+    func testAgentNeedsTwoComparableSamplesBeforeClaimingIdle() {
+        let processes = "100 1 /usr/local/bin/codex"
+        let now = Date()
+        var active = AgentActivity(), idle = AgentActivity()
+        let baseline = "codex.100,\ntcp4 test,1000,1000"
+        let increased = "codex.100,\ntcp4 test,60000,1000"
+        XCTAssertEqual(active.observeState(processes: processes, assertions: "", network: baseline, now: now), .checking)
+        XCTAssertEqual(active.observeState(processes: processes, assertions: "", network: increased, now: now.addingTimeInterval(5)), .active)
+        XCTAssertEqual(idle.observeState(processes: processes, assertions: "", network: baseline, now: now), .checking)
+        XCTAssertEqual(idle.observeState(processes: processes, assertions: "", network: baseline, now: now.addingTimeInterval(5)), .idle)
     }
 
     func testPausedAgentMonitorSkipsProbesAndDiscardsAnInflightResult() async {

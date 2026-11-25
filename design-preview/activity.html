@@ -195,9 +195,9 @@ function runtimes(s){const idle=['idle','terminal','checking'].includes(s.scenar
 {name:'Ollama',version:'0.6.2',model:s.long?'sample/<model & "quoted">-'+('very-long-model-name-'.repeat(12)):'qwen2.5-coder:14b',loaded:true,inference:s.scenario==='checking'?'unknown':idle?'idle':'generating',context:32768,memory:'9.6 GB',expiry:'5m after last use',elapsed:idle?null:42,tps:idle?null:24.8,source:'Runtime inventory + synthetic integration heartbeat'},
 {name:'LM Studio',version:'0.3.12',model:'deepseek-r1-distill-7b',loaded:true,inference:s.scenario==='checking'?'unknown':idle?'idle':'generating',context:8192,memory:'4.8 GB',expiry:null,elapsed:idle?null:18,tps:idle?null:35.2,source:'Runtime loaded-model API + synthetic integration heartbeat'},
 {name:'llama.cpp',version:'b4890',model:'gemma-3-12b-Q4_K_M.gguf',loaded:true,inference:'unknown',context:16384,memory:null,expiry:null,elapsed:null,tps:null,source:'Server metadata; inference hook unavailable'},
-{name:'MLX',version:'0.22.0',model:'mlx-community/sample-8b-4bit',loaded:null,inference:'unknown',context:null,memory:null,expiry:null,elapsed:null,tps:null,source:'Discoverable model inventory only; loaded-state hook unavailable'}
+{name:'MLX',version:'0.22.0',model:'mlx-community/sample-8b-4bit',loaded:null,inventoryOnly:true,inference:'unknown',context:null,memory:null,expiry:null,elapsed:null,tps:null,source:'Discoverable model inventory only; loaded-state hook unavailable'}
 ].filter(r=>s.selected.includes(r.name)&&(!unknown||r.name==='MLX')).map(r=>s.scenario==='mixed'&&r.name==='LM Studio'?{...r,inference:'idle',elapsed:null,tps:null}:r);}
-function configuredRule(settings){const selected=settings.checks.split(',').filter(Boolean);if(settings.forever)return 'Until I stop';const policy=settings.require==='all'?selected.map(key=>key==='agent'?'agent active':'internet available').join(' and '):settings.require==='none'?'no passing checks required':settings.require+' passing checks required';return 'Automatically: '+(policy||'no checks selected')+(settings.localInference?', or local inference':'');}
+function configuredRule(settings){const selected=settings.checks.split(',').filter(Boolean);if(settings.forever)return 'Until I stop';if(settings.localInference&&selected.length===0&&settings.require!=='none')return 'Automatically: local model activity';const policy=settings.require==='all'?selected.map(key=>key==='agent'?'agent active':'internet available').join(' and '):settings.require==='none'?'no passing checks required':settings.require+' passing checks required';return 'Automatically: '+(policy||'no checks selected')+(settings.localInference?', or local inference':'');}
 function agentStatus(s){return s.scenario==='checking'?(s.now<s.checkingUntil?'Checking…':'Unknown'):s.agent?'Active':'No activity observed';}
 function snapshot(s) {
   const ageSeconds = s.now - s.lastBeat;
@@ -214,10 +214,11 @@ function snapshot(s) {
   ].filter(check => check.required);
   const failures = checks.filter(check => !check.passed).map(check => check.failure);
   const required=cfg.require==='all'?checks.length:cfg.require==='none'?0:Number(cfg.require);
-  const normal=(checks.length>0||cfg.require==='none')&&checks.filter(check=>check.passed).length>=required;
+  const inferenceOnly=cfg.localInference&&checks.length===0&&cfg.require!=='none';
+  const normal=!inferenceOnly&&(checks.length===0||checks.filter(check=>check.passed).length>=required);
   const batterySafe=!cfg.batteryProtection||s.safe||12>=cfg.batteryCutoff;
   let hold = false;
-  let reason = failures.join(', ') || 'Select a condition in Settings';
+  let reason = inferenceOnly ? 'Waiting for local model activity.' : failures.join(', ') || 'No conditions required';
   if (!s.enabled) {
     reason = 'Explicitly stopped';
   } else if (s.asleep) {
@@ -226,7 +227,7 @@ function snapshot(s) {
     reason = 'Battery cutoff, plug in or recharge';
   } else if (s.force) {
     hold=true;reason='Automatic checks are paused.';
-  } else if (s.waitWake && !cfg.forever) {
+  } else if (s.waitWake && !cfg.forever && !inferenceOnly) {
     reason = 'Inactivity, waiting for wake or Start';
   } else if (cfg.forever) {
     hold = true;
@@ -307,8 +308,9 @@ function render() {
     const runtimeFocus = focused?.dataset?.runtime;
     const scroll = document.querySelector('.model-list')?.scrollTop || 0;
     const v = snapshot(S);
-    const ordered = [...v.runtimes].sort((a,b) => (b.inference==='generating')-(a.inference==='generating') || (b.loaded===true)-(a.loaded===true));
+    const ordered = v.runtimes.filter(model=>!model.inventoryOnly).sort((a,b) => (b.inference==='generating')-(a.inference==='generating') || (b.loaded===true)-(a.loaded===true));
     const shown = S.showAll ? ordered : ordered.slice(0,2);
+    const noModels = v.runtimes.length?'No loaded models reported':'No runtime data';
     $('menu-icon').innerHTML = v.status==='Force mode'?'ϟ':glyph+(v.hold?'✓':'');
     $('menu-icon').setAttribute('aria-label','Nightr, '+v.status);
     $('menu-icon').setAttribute('aria-expanded',String(S.open));
@@ -318,7 +320,7 @@ function render() {
       <div class="pane-status-heading"><span class="state-symbol" aria-hidden="true">${v.status==='Force mode'?'ϟ':v.status==='On'?'✓':v.status==='Off'?'−':'Ⅱ'}</span><div class="status-title">${v.status}</div>
       <p class="desc" data-checking="${v.reason === 'Checking agent activity…'}">${esc(v.reason)}</p></div>
       <div class="pane-actions"><button id="primary" class="native-primary ${S.enabled?'':'start'}">${S.enabled?'Stop protection':'Start protection'}</button><button id="force-mode">${S.force?'End force mode':'ϟ Force mode'}</button></div>
-      <section class="local-models" aria-label="Local models"><div class="models-heading"><p class="models-caption">Local models</p>${ordered.length>2?`<button id="all-models" class="all-models" aria-expanded="${S.showAll}" aria-controls="model-list">${S.showAll?'Show less':'All '+ordered.length+'…'}</button>`:''}</div><div id="model-list" class="model-list">${shown.map(modelHTML).join('')||'<p class="no-models">No runtime observations</p>'}</div></section>
+      <section class="local-models" aria-label="Local models"><div class="models-heading"><p class="models-caption">Local models</p>${ordered.length>2?`<button id="all-models" class="all-models" aria-expanded="${S.showAll}" aria-controls="model-list">${S.showAll?'Show less':'All '+ordered.length+'…'}</button>`:''}${shown.length?'':`<span class="no-models">${noModels}</span>`}</div><div id="model-list" class="model-list">${shown.map(modelHTML).join('')}</div></section>
       <div class="native-status">
         <div class="item"><span>Internet</span><span>${v.internet==='verified'?statusCheck('Connected'):v.internet==='unavailable'?'Unavailable':v.internet}</span></div>
         ${v.agent==='Active'&&!S.asleep?`<div class="item" data-agent-row><span>Agent</span><span>${statusCheck('Active')}</span></div>`:''}

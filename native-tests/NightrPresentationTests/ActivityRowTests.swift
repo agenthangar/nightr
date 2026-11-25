@@ -6,19 +6,27 @@ import NightrCore
 /// Pure formatting contracts. Does not create windows, services or observers.
 final class ActivityRowTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_000)
-    func testFreshInferenceRanksBeforeLoadedAndInventory() {
+    func testFreshInferenceRanksBeforeLoadedAndInventoryIsHidden() {
         let observation = ActivityObservation(runtimes: [
             .init(runtime: .mlx, observedAt: now, models: [.init(id: "inventory", residency: .available)]),
             .init(runtime: .lmStudio, observedAt: now, models: [.init(id: "idle", residency: .loaded, activity: .idle)]),
             .init(runtime: .ollama, observedAt: now, models: [.init(id: "working", residency: .loaded, activity: .generating, startedAt: now.addingTimeInterval(-42), inferenceExpiresAt: now.addingTimeInterval(15))])
         ])
         let rows = ActivityModelRow.rows(observation, now: now)
-        XCTAssertEqual(rows.map(\.name), ["working", "idle", "inventory"])
+        XCTAssertEqual(rows.map(\.name), ["working", "idle"])
         XCTAssertEqual(rows[0].elapsedSeconds, 42)
         XCTAssertTrue(rows[0].inference)
         XCTAssertEqual(rows[0].memoryLabel, "GPU memory")
         XCTAssertEqual(rows[1].state, "Loaded, idle")
-        XCTAssertEqual(rows[2].state, "Inventory only")
+    }
+    func testInventoryOnlyHasAnEmptyPaneWithRuntimeData() {
+        let observation = ActivityObservation(runtimes: [
+            .init(runtime: .lmStudio, observedAt: now, models: [.init(id: "downloaded", residency: .available)])
+        ])
+        XCTAssertTrue(ActivityModelRow.rows(observation, now: now).isEmpty)
+        XCTAssertTrue(ActivityModelRow.rows(observation, now: now.addingTimeInterval(30)).isEmpty)
+        XCTAssertEqual(ActivityModelRow.emptyLabel(observation), "No loaded models reported")
+        XCTAssertEqual(ActivityModelRow.emptyLabel(nil), "No runtime data")
     }
     func testExpiredRuntimeNeverPresentsCurrentMemoryOrInference() {
         let observation = ActivityObservation(runtimes: [

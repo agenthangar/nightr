@@ -81,6 +81,7 @@ struct CompactSettingsForm<NetworkControl: View>: View {
     }
 
     @ViewBuilder private var connectivity: some View {
+        let wifiSettings = URL(string: "x-apple.systempreferences:com.apple.wifi-settings-extension")!
         group("Internet & Wi-Fi") {
             settingsRow("Internet access") {
                 NightrStatusLabel(text: internet, tone: internet == "Connected" ? .confirmed : internet == "Checking…" ? .checking : .neutral,
@@ -89,12 +90,16 @@ struct CompactSettingsForm<NetworkControl: View>: View {
             if let outage { Text(outage).font(.caption).foregroundStyle(Color.nightrMuted) }
             rule
             settingsRow("Ask to join hotspots") {
-                HStack(spacing: 6) {
-                    NightrStatusLabel(text: mode == .unknown ? "Unknown" : mode.rawValue,
-                                      tone: mode == .automatic ? .confirmed : .neutral)
-                    Link(destination: URL(string: "x-apple.systempreferences:com.apple.wifi-settings-extension")!) {
-                        Image(systemName: "arrow.up.right.square")
-                    }.accessibilityLabel("Open Wi-Fi Settings").help("Open Wi-Fi Settings")
+                if mode == .unknown {
+                    Link("Open Wi-Fi Settings…", destination: wifiSettings)
+                        .help("Check the hotspot mode in macOS Wi-Fi Settings.")
+                } else {
+                    HStack(spacing: 6) {
+                        NightrStatusLabel(text: mode.rawValue, tone: mode == .automatic ? .confirmed : .neutral)
+                        Link(destination: wifiSettings) {
+                            Image(systemName: "arrow.up.right.square")
+                        }.accessibilityLabel("Open Wi-Fi Settings").help("Open Wi-Fi Settings")
+                    }
                 }
             }
         }
@@ -197,7 +202,7 @@ struct CompactSettingsForm<NetworkControl: View>: View {
                     rule
                     settingsRow("When internet is available") { checkbox("Internet is available", condition(\.internet)) }
                     rule
-                    settingsRow("When a local model is generating") { checkbox("Local model is generating", $draft.localInference) }
+                    settingsRow("When a local model is generating") { checkbox("Local model is generating", condition(\.localInference)) }
                 }
                 .disabled(forceMode)
                 .foregroundStyle(forceMode ? Color.nightrMuted : Color.nightrInk)

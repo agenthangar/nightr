@@ -59,18 +59,20 @@ agent detector has a sample. Idle terminals do not count as agent activity.
 | Runtime | Read-only local observations |
 | --- | --- |
 | Ollama | Loaded models, reported GPU memory, context and version when supplied. [Ollama API](https://docs.ollama.com/api/ps) |
-| LM Studio | Loaded instances and context from the local REST API. [LM Studio API](https://lmstudio.ai/docs/developer/rest/list) |
+| LM Studio | Loaded instances and context from the local REST API. The signed vendor CLI can report activity for a local loaded instance when its server is already running on port 1234. [LM Studio API](https://lmstudio.ai/docs/developer/rest/list), [LM Studio CLI](https://github.com/lmstudio-ai/lms/blob/main/src/subcommands/list.ts) |
 | llama.cpp | Advertised models and residency when explicitly reported by the server. [llama.cpp server API](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) |
 | MLX LM | Advertised models when the local MLX server can be identified. [MLX LM HTTP server](https://github.com/ml-explore/mlx-lm/blob/main/mlx_lm/SERVER.md#list-models) |
 
 Discovery uses known loopback endpoints. Custom ports, authenticated endpoints
-and unrecognized server processes can be unavailable. The discovery APIs above
-leave current inference activity unknown. CPU, GPU, a loaded model and a
-runtime process never count as proof of inference.
+and unrecognized server processes can be unavailable. Activity remains unknown
+until a runtime or integration reports it. The local model list omits inventory
+entries that have neither loaded status nor active inference.
 
-In **Settings → Protection**, **Keep awake while a local model is generating**
-lets fresh integration observations satisfy Automatic protection independently,
-including offline. It starts off. Stop, sleep, the inactivity wake latch,
+In **Settings → Protection**, **When a local model is generating**
+lets fresh model observations satisfy Automatic protection independently,
+including offline. It starts off and can be the only selected condition. In
+that configuration, protection resumes on fresh inference and releases after
+it ends. Stop, sleep, the inactivity wake latch for agent-based protection,
 battery cutoff and ownership checks still take priority. With authorized
 protection already enabled, a local inference client can run this metadata
 producer as a child while its model is working:
@@ -274,6 +276,8 @@ can stage a password when needed, and unknown security requires an explicit
 choice. The parent Save commits the staged selection and credential operation;
 Cancel discards pending changes. Credential failures leave the configuration
 unchanged. Existing inaccessible credentials may need explicit access repair.
+The hotspot authenticates a newly entered password on the first connection
+attempt.
 The installed app and worker use native Keychain access; the bundled rail editor
 invokes the signed CLI for a private terminal password prompt. Raw passwords do
 not enter command arguments, configuration, status JSON, IPC or logs.

@@ -36,6 +36,7 @@ public struct GUIProtectionSummary {
             }
             return
         }
+        let checkingAgent = status.settings.monitoring && status.settings.agent && status.sample.agentObservation == .checking
         if error != nil || status.state.pause.map({ [PauseReason.setup, .ownership, .crashLimit].contains($0) }) == true {
             label = "Error"; symbol = "exclamationmark.triangle"; detail = "Protection needs attention. Review the details below."
         } else if status.holding {
@@ -45,13 +46,15 @@ public struct GUIProtectionSummary {
             if status.forceMode == true { detail = "Automatic checks are paused." }
             else if status.settings.localInference && !status.settings.forever && status.sample.activity?.hasActiveInference(at: Date()) == true {
                 detail = "Local inference is keeping your Mac awake."
-            } else if status.sample.agentObservation == .checking {
+            } else if checkingAgent {
                 detail = "Your Mac is being kept awake while agent activity is checked."
             } else { detail = "Your Mac is being kept awake." }
         } else if !status.state.desiredEnabled {
             label = "Off"; symbol = "minus.circle"; detail = "Protection is stopped. Start when you’re ready."
         } else if status.state.internet == .checking {
             label = "Recovering"; symbol = "arrow.clockwise"; detail = "Checking internet before protection can resume."
+        } else if status.state.pause == nil && checkingAgent && status.forceMode != true {
+            label = "Checking…"; symbol = "clock"; detail = "Checking for agent activity."
         } else {
             label = "Paused"; symbol = "pause.circle"
             switch status.state.pause {
@@ -60,7 +63,7 @@ public struct GUIProtectionSummary {
             case .loginOptOut: detail = "Login resume is disabled. Start to enable protection."
             case .inactivity: detail = "No agent activity observed. Waiting for normal wake."
             case .connectivity: detail = "Waiting for verified internet."
-            default: detail = "Protection is enabled and waiting for its conditions."
+            default: detail = status.settings.requiresLocalInference ? "Waiting for local model activity." : "Protection is enabled and waiting for its conditions."
             }
         }
     }
