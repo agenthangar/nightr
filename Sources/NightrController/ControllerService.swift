@@ -1,5 +1,8 @@
 import Foundation
 import NightrCore
+#if canImport(OSLog)
+import OSLog
+#endif
 #if canImport(Darwin)
 import Darwin
 #else
@@ -123,10 +126,16 @@ public actor ControllerService {
             if !settings.localInference { inferenceLeases.clear(); engine.replaceActivityObservation(rawSample.activity) }; effectiveEvent = event
         default: effectiveEvent = event
         }
+        let wasBatteryPaused = engine.state.pause == .battery
         let effects = engine.handle(effectiveEvent, now: now)
+        var cancelBatterySleep = wasBatteryPaused && engine.state.pause != .battery
+        if wasBatteryPaused, case .settings(let settings) = effectiveEvent,
+           !settings.batteryProtection || settings.batteryBelow < engine.settings.batteryBelow {
+            cancelBatterySleep = true
+        }
         if !engine.inferenceEligible { inferenceLeases.clear(); engine.replaceActivityObservation(rawSample.activity) }
-        if effects.contains(where: { effect in
-            switch effect { case .acquireHold, .releaseHold: return true; default: return false }
+        if cancelBatterySleep || effects.contains(where: { effect in
+            switch effect { case .acquireHold, .releaseHold, .releaseHoldForBattery: return true; default: return false }
         }) { protectionEpoch += 1 }
         let transitionEpoch = protectionEpoch
         // Desired intent and consumed attempt reservations reach disk before any external effect.
@@ -137,8 +146,9 @@ public actor ControllerService {
             persistenceError = failure
             _ = engine.handle(.stop, now: Date()); generation += 1
             operations.values.forEach { $0.cancel() }; operations.removeAll()
-            await cancelPlatformOperations(); protectionEpoch += 1; await protection?.submit(nil, epoch: protectionEpoch); return failure
+            protectionEpoch += 1; await protection?.submit(nil, epoch: protectionEpoch); await cancelPlatformOperations(); return failure
         }
+        if cancelBatterySleep { await protection?.submit(nil, epoch: transitionEpoch) }
         for effect in effects {
             switch effect {
             case .persist: break
@@ -146,6 +156,15 @@ public actor ControllerService {
                 generation += 1; operations.values.forEach { $0.cancel() }; operations.removeAll(); await cancelPlatformOperations()
             case .releaseHold:
                 if transitionEpoch == protectionEpoch && !engine.holding { await protection?.submit(nil, epoch: transitionEpoch) }
+            case .releaseHoldForBattery(let cutoff):
+                if transitionEpoch == protectionEpoch && engine.state.pause == .battery {
+                    #if canImport(OSLog)
+                    if protectionConfirmed, let percent = engine.sample.batteryPercent {
+                        Logger(subsystem: "ai.nightr", category: "battery").notice("battery-cutoff percent=\(percent, privacy: .public) cutoff=\(cutoff, privacy: .public)")
+                    }
+                    #endif
+                    await protection?.submit(nil, epoch: transitionEpoch, sleepBelow: protectionConfirmed ? cutoff : nil)
+                }
             case .acquireHold(let settings):
                 if transitionEpoch == protectionEpoch && engine.holding && settings == engine.settings { await protection?.submit(settings, epoch: transitionEpoch) }
             case .verifyInternet(let token, let timeout):
@@ -192,7 +211,8 @@ public actor ControllerService {
         inferenceLeases.clear()
         running = false; generation += 1; timer?.cancel(); timer = nil
         operations.values.forEach { $0.cancel() }; operations.removeAll()
-        await cancelPlatformOperations(); protectionEpoch += 1; await protection?.submit(nil, epoch: protectionEpoch); await protection?.flush(); protection = nil
+        protectionEpoch += 1; await protection?.submit(nil, epoch: protectionEpoch)
+        await cancelPlatformOperations(); await protection?.flush(); protection = nil
         socket?.stop(); socket = nil; ownership = nil
     }
     private func persist() throws { try StateJournal.save(engine.journalState, directory: runtimeDirectory) }

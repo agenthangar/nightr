@@ -10,8 +10,8 @@ from urllib.request import urlopen
 def watch(run_id, expected_sha):
     url = f"https://api.github.com/repos/agenthangar/nightr/actions/runs/{run_id}"
     last_status = None
-    # The release job has a 90-minute deadline. Queue time is additional.
-    deadline = time.monotonic() + 100 * 60
+    # Signing and physical battery acceptance are sequential jobs (90 + 95 minutes).
+    deadline = time.monotonic() + 200 * 60
     while time.monotonic() < deadline:
         try:
             with urlopen(url, timeout=15) as response:

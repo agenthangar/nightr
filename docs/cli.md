@@ -43,8 +43,9 @@ field or infer protection from process availability alone.
 
 Start needs the signed power helper to be ready. A requested hold can fail;
 status reports setup, ownership, safety and recovery errors instead of treating
-intent alone as successful protection. Nightr never unlocks the Mac or forces
-immediate system sleep.
+intent alone as successful protection. If battery charge drops below the enabled
+cutoff during active protection, Nightr releases its hold and requests system
+sleep after confirming the Mac is still running on low battery.
 
 ## Local model activity
 
@@ -250,9 +251,11 @@ can recover while awake after verification; an inactivity release waits for a
 normal wake. Nightr restores its own protection; coding agents handle their own
 session reconnections.
 
-Optional battery protection defaults to off with a saved threshold of 20%.
-When enabled, a battery percentage below the threshold releases the hold, without
-forcing sleep. The safety check applies in both awake modes and takes priority
+Battery protection defaults to on with a saved threshold of 20%. Existing
+configurations retain their saved choice. When a measured charge below that
+threshold interrupts active protection, Nightr releases its hold, confirms the
+Mac is still running on low battery, and requests system sleep once.
+The safety check applies in both awake modes and takes priority
 over grace, retries and hotspot recovery. AC power does not trigger the cutoff.
 Unsafe or unavailable battery safety data can pause protection. Plugging in or
 recharging can clear a battery pause, while preserving any underlying inactivity

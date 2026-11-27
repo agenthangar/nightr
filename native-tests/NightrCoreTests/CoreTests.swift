@@ -26,7 +26,8 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(GUIProtectionSummary(status: ControllerStatus(engine: engine)).internet, "Checks paused")
         XCTAssertFalse(engine.journalState.desiredEnabled)
         _ = engine.handle(.beginForce, now: now)
-        _ = engine.handle(.tick(.init(onBattery: true, batteryPercent: 5)), now: now)
+        let cutoff = engine.handle(.tick(.init(onBattery: true, batteryPercent: 5)), now: now)
+        XCTAssertTrue(cutoff.contains(.releaseHoldForBattery(cutoff: 20)))
         XCTAssertFalse(engine.holding)
         XCTAssertEqual(engine.state.pause, .battery)
         _ = engine.handle(.tick(.init(onBattery: false, batteryPercent: 5)), now: now)
@@ -148,6 +149,36 @@ final class CoreTests: XCTestCase {
         _ = engine.handle(.pathChanged, now: now.addingTimeInterval(300))
         XCTAssertFalse(engine.holding); XCTAssertNil(engine.verificationToken)
         _ = engine.handle(.normalWake, now: now.addingTimeInterval(301)); XCTAssertTrue(engine.holding)
+    }
+    func testBatteryCutoffRequestsSleepOnlyForAnActiveHoldAndKnownLowCharge() {
+        var settings = Settings()
+        settings.forever = true
+        settings.batteryBelow = 10
+        let low = MachineSample(onBattery: true, batteryPercent: 9)
+        let sleepRelease = MonitorEffect.releaseHoldForBattery(cutoff: 10)
+        var engine = MonitorEngine(settings: settings)
+
+        XCTAssertFalse(engine.handle(.tick(low), now: now).contains(sleepRelease))
+        _ = engine.handle(.start, now: now)
+        XCTAssertFalse(engine.holding)
+        _ = engine.handle(.tick(.init(onBattery: false, batteryPercent: 9)), now: now)
+        XCTAssertTrue(engine.holding)
+        _ = engine.handle(.tick(.init(onBattery: true, batteryPercent: 10)), now: now)
+        XCTAssertTrue(engine.holding)
+        XCTAssertTrue(engine.handle(.tick(low), now: now).contains(sleepRelease))
+        XCTAssertFalse(engine.handle(.tick(low), now: now).contains(sleepRelease))
+        _ = engine.handle(.sleep, now: now)
+        XCTAssertFalse(engine.handle(.normalWake, now: now).contains(sleepRelease))
+
+        _ = engine.handle(.tick(.init(onBattery: true, batteryPercent: 50)), now: now)
+        let unknown = engine.handle(.tick(.init(onBattery: true)), now: now)
+        XCTAssertTrue(unknown.contains(.releaseHold))
+        XCTAssertFalse(unknown.contains(sleepRelease))
+
+        settings.batteryProtection = false
+        _ = engine.handle(.settings(settings), now: now)
+        XCTAssertFalse(engine.handle(.tick(low), now: now).contains(sleepRelease))
+        XCTAssertTrue(engine.holding)
     }
     func testFreshNormalWakeAndSingleVerificationCadence() {
         var engine = MonitorEngine(); _ = engine.handle(.start, now: now)
@@ -585,6 +616,11 @@ private actor DelayedProtection: ControllerPlatform {
     var gate: CheckedContinuation<Void, Never>?
     var waiting: [CheckedContinuation<Void, Never>] = []
     var shouldDelay = true
+    private var releaseGate: CheckedContinuation<Void, Never>?
+    private var waitingForRelease: CheckedContinuation<Void, Never>?
+    private var shouldDelayRelease: Bool
+    private var machineSample = MachineSample()
+    init(delayRelease: Bool = false) { shouldDelayRelease = delayRelease }
     func acquireProtection(settings: Settings) async throws {
         events.append("acquire")
         if shouldDelay {
@@ -598,12 +634,66 @@ private actor DelayedProtection: ControllerPlatform {
     }
     func waitForAcquire() async { if gate != nil { return }; await withCheckedContinuation { waiting.append($0) } }
     func completeAcquire() { gate?.resume(); gate = nil }
-    func releaseProtection() async { events.append("release") }
+    func releaseProtection() async {
+        events.append("release")
+        if shouldDelayRelease {
+            shouldDelayRelease = false
+            await withCheckedContinuation { continuation in
+                releaseGate = continuation
+                waitingForRelease?.resume(); waitingForRelease = nil
+            }
+        }
+    }
+    func waitForRelease() async {
+        if releaseGate != nil { return }
+        await withCheckedContinuation { waitingForRelease = $0 }
+    }
+    func completeRelease() { releaseGate?.resume(); releaseGate = nil }
+    func requestBatterySleep(below cutoff: Int) async { events.append("sleep below \(cutoff)") }
     func verifyInternet(timeout: TimeInterval) async -> Bool { false }
     func joinHotspot(ssid: String, timeout: TimeInterval) async -> JoinResult { .failed }
-    func sample() async -> MachineSample { MachineSample() }
+    func setSample(_ sample: MachineSample) { machineSample = sample }
+    func sample() async -> MachineSample { machineSample }
 }
 final class ProtectionInterleavingTests: XCTestCase {
+    func testBatterySleepFollowsRelease() async {
+        let platform = DelayedProtection()
+        let executor = ProtectionExecutor(platform: platform) { _, _, _ in }
+        await executor.submit(nil, epoch: 1, sleepBelow: 10)
+        await executor.flush()
+        let events = await platform.events
+        XCTAssertEqual(events, ["release", "sleep below 10"])
+    }
+    func testStopDuringBatteryReleaseCancelsSleep() async throws {
+        let directory = URL(fileURLWithPath: "/tmp/nc-" + UUID().uuidString.prefix(8))
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let platform = DelayedProtection(delayRelease: true)
+        let service = try ControllerService(platform: platform, settingsStore: SettingsStore(url: directory.appendingPathComponent("config.json")), runtimeDirectory: directory.appendingPathComponent("run"))
+        try await service.start()
+        await service.send(.beginForce)
+        await platform.waitForAcquire()
+        await platform.completeAcquire()
+        for _ in 0..<100 {
+            if await service.status().holding { break }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        let holding = await service.status().holding
+        XCTAssertTrue(holding)
+
+        let low = MachineSample(onBattery: true, batteryPercent: 1)
+        await platform.setSample(low)
+        await service.send(.tick(low))
+        await platform.waitForRelease()
+        await service.send(.stop)
+        await platform.completeRelease()
+        for _ in 0..<100 {
+            if await platform.events.filter({ $0 == "release" }).count == 2 { break }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        let events = await platform.events
+        XCTAssertEqual(events, ["acquire", "acquired", "release", "release"])
+        await service.shutdown(preserveIntent: true)
+    }
     func testStopDuringAcquireReleasesAfterCompletion() async {
         let platform = DelayedProtection()
         let executor = ProtectionExecutor(platform: platform) { _, _, _ in }

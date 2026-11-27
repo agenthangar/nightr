@@ -81,8 +81,10 @@ user enables it. Persist desired enabled state separately from process health.
 Normal wake/login resumes enabled protection; explicit Stop/foreground Ctrl-C/
 Stop and Quit persists disabled. Automatic inactivity release waits for the next
 normal wake; connectivity-only release waits for verified recovery while awake
-or a fresh check after normal wake. Never immediately respawn and defeat sleep. Low battery
-pauses until safe power conditions. Refresh samples/grace at wake, avoid rearming
+or a fresh check after normal wake. Never immediately respawn and defeat sleep. When
+confirmed low battery interrupts an active hold, release protection and request
+system sleep once if a fresh reading still shows battery power below the cutoff.
+Pause protection until power is safe. Refresh samples/grace at wake, avoid rearming
 on maintenance wakes, and bound crash restart attempts. CLI-only installation
 does not add a login service.
 

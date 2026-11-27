@@ -6,6 +6,8 @@ import NightrCore
 actor ProtectionExecutor {
     private let platform: any ControllerPlatform
     private var desired: Settings?
+    private var sleepBelow: Int?
+    private var sleepRequest: Task<Void, Never>?
     private var revision = 0
     private var epoch = 0
     private var draining = false
@@ -14,8 +16,10 @@ actor ProtectionExecutor {
     init(platform: any ControllerPlatform, report: @escaping @Sendable (Int, Bool, String?) async -> Void) {
         self.platform = platform; self.report = report
     }
-    func submit(_ settings: Settings?, epoch: Int) {
-        desired = settings; self.epoch = epoch; revision += 1
+    func submit(_ settings: Settings?, epoch: Int, sleepBelow: Int? = nil) {
+        guard epoch >= self.epoch else { return }
+        sleepRequest?.cancel()
+        desired = settings; self.sleepBelow = sleepBelow; self.epoch = epoch; revision += 1
         guard !draining else { return }
         draining = true
         Task { await drain() }
@@ -29,6 +33,7 @@ actor ProtectionExecutor {
             let current = revision
             let currentEpoch = epoch
             let target = desired
+            let cutoff = sleepBelow
             if let settings = target {
                 do {
                     try await platform.acquireProtection(settings: settings)
@@ -40,6 +45,12 @@ actor ProtectionExecutor {
                 }
             } else {
                 await platform.releaseProtection()
+                if current == revision, let cutoff {
+                    let request = Task { [platform] in await platform.requestBatterySleep(below: cutoff) }
+                    sleepRequest = request
+                    await request.value
+                    sleepRequest = nil
+                }
                 if current == revision { await report(currentEpoch, false, nil) }
             }
             if current == revision {

@@ -57,7 +57,7 @@ public enum MonitorEvent: Sendable {
     case retryNow, tryAgain, skipFallback, settings(Settings), login, crashed, ownershipLost
 }
 public enum MonitorEffect: Equatable, Sendable {
-    case acquireHold(Settings), releaseHold, cancelOperations
+    case acquireHold(Settings), releaseHold, releaseHoldForBattery(cutoff: Int), cancelOperations
     case verifyInternet(UUID, timeout: TimeInterval), joinHotspot(UUID, ssid: String, timeout: TimeInterval)
     case promptHotspot, persist
 }
@@ -215,8 +215,14 @@ public struct MonitorEngine: Sendable {
         if !state.desiredEnabled { release(&effects) }
         else if asleep || maintenance { release(&effects) }
         else if hardPause { cancel(&effects); release(&effects) }
+        else if unsafeBattery {
+            rememberSafetyPause(); state.pause = .battery; cancel(&effects)
+            if holding, sample.batteryPercent != nil {
+                holding = false
+                effects.append(.releaseHoldForBattery(cutoff: settings.batteryBelow))
+            } else { release(&effects) }
+        }
         else if !sample.setupReady { rememberSafetyPause(); state.pause = .setup; cancel(&effects); release(&effects) }
-        else if unsafeBattery { rememberSafetyPause(); state.pause = .battery; cancel(&effects); release(&effects) }
         else if forceMode {
             state.pause = nil
             if !holding { holding = true; effects.append(.acquireHold(settings)) }

@@ -18,7 +18,7 @@ Use this index when changing the app, either preview, the CLI or the website. Th
 | Settings | Center the window title, preserve toolbar icon padding and give the four tabs a common layout. Use system type, readable secondary ink, a shared checkbox, a fixed footer and one pending draft. | `SettingsLayout`, `CompactSettingsForm`, full-window keyboard, title, artwork and checkbox render checks |
 | Updates | General shows the running version and build, automatic downloads on by default, a manual check, and a green check with the verified version when an update is ready. Show progress and errors in the same row. Apply the checkbox through the Settings draft. Installation starts only after the user chooses it. | `CompactSettingsForm`, native General captures and browser update checks |
 | Rows and fields | Follow Advanced for all forms. Align labels and hints left and visible controls right. Use a compact menu, a single duration field with unit control, or a compact count field with a separate native stepper 6pt to its right. Keep explanatory copy beside the relevant option. | `CompactSettingsForm`, `NetworkChooser`, native protection-edge, chooser-anchor and count-stepper checks |
-| Protection | Under “Keep Mac awake”, label each automatic condition with “When”. Offer temporary Force mode on the main pane and in Protection. Keep the battery row visible by default and enable its 20% cutoff on new configurations. Respect explicit opt-out and external power. | `testBatteryCutoffDefaultsAndSavedOptOut`, `testForceOverridesChecksButHonorsSafetyAndOriginalIntent`, native Protection capture |
+| Protection | Under “Keep Mac awake”, label each automatic condition with “When”. Offer temporary Force mode on the main pane and in Protection. Enable the visible battery cutoff at 20% on new configurations. Release active protection and request sleep once on confirmed low battery. Respect explicit opt-out and external power. | `testBatteryCutoffDefaultsAndSavedOptOut`, `testBatteryCutoffRequestsSleepOnlyForAnActiveHoldAndKnownLowCharge`, `testBatterySleepFollowsRelease`, `testStopDuringBatteryReleaseCancelsSleep`, native Protection capture |
 | Connectivity | Show observed internet and hotspot preference first. Use the same row alignment for backup hotspot, delay and attempts. Choosing a network enables fallback in the draft. Reuse saved passwords and request a masked password for an unsaved secured network. | `NetworkChooser`, native three-tab geometry and secured/saved/open interaction checks, browser draft and credential tests |
 | CLI and website | Preserve CLI flags, configuration semantics and explicit Stop. Use the approved icon and the website typography and navigation specified below. Use the same native menu bar capture with synthetic data on the product site and in the README banner. Link the banner to the full-size capture. | CLI contracts and the website, icon and lifecycle checks in `design-preview/check-preview.cjs`. See [site screenshot instructions](site/README.md) for native captures and banner export. |
 
@@ -72,8 +72,9 @@ Protection uses four groups.
 - **When lid closes** aligns the Display menu and Lock Mac checkbox to the
   same trailing edge as the conditions.
 - **On battery** enables Allow sleep below at 20% by default. Preserve an
-  explicit opt-out and retain the threshold when disabled. On battery, Nightr
-  releases its hold below the cutoff in either awake mode.
+  explicit opt-out and retain the threshold when disabled. Below the cutoff,
+  Nightr releases its hold in either awake mode. After confirming the Mac is
+  still on battery below the cutoff, Nightr requests system sleep once.
 
 Hidden automatic conditions retain their selection and are excluded
 from focus. An existing until-stopped configuration offers **Use automatic rules**, which stages the change for Save.
