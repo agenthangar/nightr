@@ -31,7 +31,7 @@ import NightrCore
         GUIEventInbox.didFinishLaunching()
         let launch = GUILaunchConfiguration(arguments: CommandLine.arguments)
         if launch.startup == .controller && !launch.headless && !launch.afterDesktopInstall,
-           let event = notification.userInfo?["NSAppleEvent"] as? NSAppleEventDescriptor,
+           let event = NSAppleEventManager.shared().currentAppleEvent ?? (notification.userInfo?["NSAppleEvent"] as? NSAppleEventDescriptor),
            event.eventID == kAEOpenApplication,
            event.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue != keyAELaunchedAsLogInItem,
            !UserDefaults.standard.bool(forKey: "guidedSetupCompleted") {
@@ -97,6 +97,7 @@ import NightrCore
         let view = GuidedSetup(model: model) { [weak self] in
             UserDefaults.standard.set(true, forKey: "guidedSetupCompleted")
             self?.setupWindow?.close()
+            self?.setupWindow = nil
             self?.reopen()
         }
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
@@ -131,8 +132,7 @@ import NightrCore
     }
 
     func windowWillClose(_ notification: Notification) {
-        if notification.object as? NSWindow === setupWindow { setupWindow = nil }
-        else { settingsWindow = nil }
+        if notification.object as? NSWindow === settingsWindow { settingsWindow = nil }
     }
 
     @objc private func stopAndQuit(_ sender: Any?) { model.quit() }
