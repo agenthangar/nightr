@@ -131,6 +131,8 @@ def main():
                     "CFBundleVersion": args.version, "NightrSourceRevision": run("git", "-C", ROOT, "rev-parse", "HEAD"),
                     "LSMinimumSystemVersion": "13.0", "LSUIElement": True,
                     "NSHighResolutionCapable": True, "NightrTeamID": team, "NightrProtocolVersion": 1,
+                    "NSLocationUsageDescription": "Nightr uses Location Services to find nearby Wi-Fi networks when you choose a backup hotspot.",
+                    "NSLocationAlwaysAndWhenInUseUsageDescription": "Nightr uses Location Services to find your chosen backup hotspot during recovery.",
                     "NSLocationWhenInUseUsageDescription": "Nightr uses location permission to show nearby Wi-Fi names when you choose a hotspot."}
             with (app / "Contents/Info.plist").open("wb") as output: plistlib.dump(info, output)
             phase("Signing app and bundled executables")
