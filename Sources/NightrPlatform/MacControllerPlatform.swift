@@ -5,6 +5,7 @@ import IOKit.ps
 import IOKit.pwr_mgt
 import UserNotifications
 import Security
+import OSLog
 import NightrCore
 import NightrController
 import NightrPowerClient
@@ -145,6 +146,35 @@ public actor MacControllerPlatform: ControllerPlatform {
         }
         client?.invalidate()
     }
+    public func requestBatterySleep(below cutoff: Int) async {
+        guard !Task.isCancelled, let powerTeam, let client = try? SignedPowerClient(teamID: powerTeam) else { return }
+        defer { client.invalidate() }
+        let process = BoundedProcess()
+        await withTaskCancellationHandler {
+            do {
+                try await BatterySleepCommand.request(
+                    below: cutoff,
+                    restoration: {
+                        let reply = try await withCheckedThrowingContinuation { continuation in
+                            client.status { continuation.resume(with: $0) }
+                        }
+                        return (reply.active, reply.restorationBlocked)
+                    },
+                    hasLease: { self.lease != nil },
+                    battery: { Self.batteryStatus() },
+                    execute: { executable, arguments, timeout in
+                        try await Task.detached {
+                            _ = try process.run(executable: executable, arguments: arguments, timeout: timeout)
+                        }.value
+                    }
+                )
+            } catch NativeOperationError.cancelled {
+                return
+            } catch {
+                Logger(subsystem: "ai.nightr", category: "battery").error("macOS battery cutoff sleep request failed: \(error.localizedDescription, privacy: .public)")
+            }
+        } onCancel: { process.cancel() }
+    }
     private func updateDisplay(lidClosed: Bool, force: Bool) throws {
         guard let settings = heldSettings else { return }
         if !lidClosed { _ = displayActions.restore() }
@@ -218,16 +248,7 @@ public actor MacControllerPlatform: ControllerPlatform {
                 if reply == nil { power.invalidate(); if self.power === power { self.power = nil } }
             } else { ready = false }
         }
-        var onBattery = false; var percent: Int?
-        if let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(), let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] {
-            for source in sources {
-                guard let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any] else { continue }
-                guard description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType else { continue }
-                onBattery = description[kIOPSPowerSourceStateKey] as? String == kIOPSBatteryPowerValue
-                if let current = description[kIOPSCurrentCapacityKey] as? Int, let total = description[kIOPSMaxCapacityKey] as? Int, total > 0 { percent = min(100, max(0, current * 100 / total)) }
-                break
-            }
-        }
+        let battery = Self.batteryStatus()
         let root = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
         var lid = false
         if root != 0 {
@@ -243,8 +264,22 @@ public actor MacControllerPlatform: ControllerPlatform {
         }
         let agent = await agentActivity.snapshot(enabled: checkAgentActivity)
         let telemetry = await activityTelemetry.snapshot()
-        return MachineSample(onBattery: onBattery, batteryPercent: percent, agentActive: agent == .active,
+        return MachineSample(onBattery: battery.onBattery, batteryPercent: battery.percent, agentActive: agent == .active,
                              lidClosed: lid, setupReady: ready, agentObservation: agent, activity: telemetry)
+    }
+    private static func batteryStatus() -> (onBattery: Bool, percent: Int?) {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return (false, nil) }
+        for source in sources {
+            guard let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
+                  description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType else { continue }
+            let onBattery = description[kIOPSPowerSourceStateKey] as? String == kIOPSBatteryPowerValue
+            guard let current = description[kIOPSCurrentCapacityKey] as? Int,
+                  let total = description[kIOPSMaxCapacityKey] as? Int,
+                  total > 0, current >= 0, current <= total else { return (onBattery, nil) }
+            return (onBattery, Int(Double(current) * 100 / Double(total)))
+        }
+        return (false, nil)
     }
     public func notifyHotspot() async {
         let content = UNMutableNotificationContent()

@@ -24,7 +24,7 @@ var targets: [Target] = [
     .executableTarget(name: "NightrApp", dependencies: ["NightrCore", "NightrController", "NightrPlatform", "NightrPowerClient"]),
     .executableTarget(name: "NightrNetworkWorker", dependencies: ["NightrPlatform"]),
     .executableTarget(name: "NightrCLI", dependencies: ["NightrCore", "NightrController", "NightrPlatform", "NightrMCP", "NightrMCPController", "NightrPowerClient"]),
-    .testTarget(name: "NightrPlatformTests", dependencies: ["NightrPlatform", "NightrCore"], path: "native-tests/NightrPlatformTests"),
+    .testTarget(name: "NightrPlatformTests", dependencies: ["NightrPlatform", "NightrCore", "NightrController"], path: "native-tests/NightrPlatformTests"),
     .testTarget(name: "NightrPowerTests", dependencies: ["NightrPowerProtocol", "NightrPowerClient"], path: "native-tests/NightrPowerTests"),
     .target(name: "NightrTestProcess", path: "native-tests/NightrTestProcess", publicHeadersPath: "include"),
     .testTarget(name: "NightrCoreTests", dependencies: ["NightrCore", "NightrController", "NightrTestProcess"], path: "native-tests/NightrCoreTests")

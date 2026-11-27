@@ -301,6 +301,13 @@ passes. Publication remains deferred until the broader acceptance is complete
 and a reviewed publication path is added. Track that work in
 [issue #3](https://github.com/agenthangar/nightr/issues/3).
 
+### Physical battery acceptance
+
+After installer acceptance, the signed candidate runs on the enrolled lab
+MacBook. A successful candidate requires a passing battery receipt for the
+same commit and DMG SHA-256. The physical check exercises cutoff, sleep, wake
+and recovery. [Fixture setup and acceptance criteria](battery-lab.md)
+
 ### Disposable managed-upgrade acceptance
 
 The separate manual **Signed managed upgrade acceptance** workflow

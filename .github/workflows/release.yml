@@ -23,6 +23,8 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 90
     environment: release
+    outputs:
+      candidate-artifact: ${{ steps.retain.outputs.artifact-id }}
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
       NIGHTR_TEAM_ID: ${{ vars.NIGHTR_TEAM_ID }}
@@ -134,6 +136,7 @@ jobs:
         run: |
           python3 scripts/check_installer.py --disposable-github-runner --dmg "dist/Nightr-$VERSION-universal.dmg" --team-id "$NIGHTR_TEAM_ID" --version "$VERSION" --report dist/installer-acceptance.json
       - name: Retain candidate and acceptance evidence (never publish)
+        id: retain
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -160,4 +163,45 @@ jobs:
             dist/checkpoint/package-notary.log
             dist/checkpoint/dmg-notary.log
           if-no-files-found: warn
+          retention-days: 14
+      - name: Check battery lab registration
+        env:
+          FIXTURE_READY: ${{ vars.NIGHTR_BATTERY_LAB_READY }}
+        run: |
+          if test "$FIXTURE_READY" != true; then
+            echo "::error::Battery lab is unregistered. Follow docs/battery-lab.md before release."
+            exit 1
+          fi
+
+  battery-acceptance:
+    needs: candidate
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      group: nightr-battery-lab
+      labels: nightr-battery-coordinator
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          clean: true
+      - name: Fetch this build's signed candidate
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.candidate-artifact }}
+          merge-multiple: true
+          path: candidate
+      - name: Verify physical sleep and wake
+        env:
+          VERSION: ${{ inputs.version }}
+          TEAM: ${{ vars.NIGHTR_TEAM_ID }}
+        run: python3 scripts/check_battery_lab.py --candidate candidate --version "$VERSION" --team-id "$TEAM" --report dist/battery-acceptance.json
+      - name: Retain battery acceptance receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: battery-acceptance-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/battery-acceptance.json
+          if-no-files-found: error
           retention-days: 14

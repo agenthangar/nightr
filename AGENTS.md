@@ -22,6 +22,8 @@ from AgentHangar's `t`. The desktop app, CLI and website share this repository.
   login-service install or DNS mutation as a test. Use mocked system commands,
   sandbox HOME/XDG paths and isolated temporary state. Strip COV_CORE_* from
   child copies of measured binaries. Native UI tests require explicit opt-in.
+- Physical battery acceptance runs only with the signed candidate on the
+  enrolled, dedicated MacBook described in docs/battery-lab.md.
 - Use only synthetic data in demos. No auth state, user configuration, transcripts
   or personal session recordings in this public repository.
 - Treat power ownership and one active monitor as invariants. Bounded helpers,
@@ -38,7 +40,7 @@ from AgentHangar's `t`. The desktop app, CLI and website share this repository.
   PR checks with `t runners runs watch OWNER/REPO#PR@HEAD_SHA --timeout 60 --json`.
   Pass `--next-step` to record the pending action and resume a timed-out watch.
   For standalone signing on main, start a local watcher receipt with
-  `t runners runs start --tool codex --repo nightr --timeout 6100 --next-step "Verify signed package" -- python3 scripts/watch_signed_candidate.py RUN_ID MERGE_SHA`.
+  `t runners runs start --tool codex --repo nightr --timeout 12100 --next-step "Verify signed package and battery receipt" -- python3 scripts/watch_signed_candidate.py RUN_ID MERGE_SHA`.
   Watch that receipt by ID and inspect its result before installing.
 - Review actual diffs and evidence before PRs. After required preview approval,
   open ready PRs, enable squash auto-merge, and monitor required CI through merge;
