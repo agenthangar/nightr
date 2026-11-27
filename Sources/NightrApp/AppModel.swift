@@ -232,6 +232,7 @@ import NightrPlatform
         let receipt = try DesktopRegistrationReceipt.enable([helperService()])
         if !receipt.pending.isEmpty { throw DesktopServiceError("Complete Nightr power helper approval in System Settings → General → Login Items.") }
     }
+    static var loginPending: Bool { loginServices().contains { $0.status == .requiresApproval } }
     private static func loginServices() -> [MacDesktopService] {
         [MacDesktopService(name: "Nightr menu bar app", service: .mainApp, requiredPaths: ["Contents/MacOS/NightrApp"]),
                         MacDesktopService(name: "Nightr background controller", service: .agent(plistName: "ai.nightr.agent.plist"),

@@ -54,7 +54,7 @@ public actor MacControllerPlatform: ControllerPlatform {
         if let team = Self.signedTeam(),
            let client = try? SignedPowerClient(teamID: team) { powerTeam = team; power = client }
     }
-    private static func signedTeam() -> String? {
+    public static func signedTeam() -> String? {
         var code: SecCode?
         var staticCode: SecStaticCode?
         var information: CFDictionary?
