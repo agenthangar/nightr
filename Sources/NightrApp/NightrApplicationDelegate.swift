@@ -8,10 +8,11 @@ import NightrCore
     private let model: AppModel
     private var statusItem: NSStatusItem?
     private var statusLabel: AnyCancellable?
+    private var setupWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private let popoverDismissal = MenuPopoverDismissal()
     private lazy var popover: NSPopover = {
-        let popover = makeMenuPopover(hosting: PopoverHost(model: model) { [weak self] in
+        let popover = makeMenuPopover(hosting: PopoverHost(model: model, setup: { [weak self] in self?.openSetup() }) { [weak self] in
             self?.openSettings()
         })
         popover.delegate = popoverDismissal
@@ -28,6 +29,14 @@ import NightrCore
         installApplicationMenu()
         insertStatusItemIfNeeded()
         GUIEventInbox.didFinishLaunching()
+        let launch = GUILaunchConfiguration(arguments: CommandLine.arguments)
+        if launch.startup == .controller && !launch.headless && !launch.afterDesktopInstall,
+           let event = notification.userInfo?["NSAppleEvent"] as? NSAppleEventDescriptor,
+           event.eventID == kAEOpenApplication,
+           event.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue != keyAELaunchedAsLogInItem,
+           !UserDefaults.standard.bool(forKey: "guidedSetupCompleted") {
+            openSetup()
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
@@ -76,10 +85,29 @@ import NightrCore
     }
 
     private func showPane(at button: NSStatusBarButton) {
+        if !UserDefaults.standard.bool(forKey: "guidedSetupCompleted") { openSetup(); return }
         settingsWindow?.orderOut(nil)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
+    @objc private func openSetup() {
+        popover.close()
+        settingsWindow?.orderOut(nil)
+        if let setupWindow { front(setupWindow); return }
+        let view = GuidedSetup(model: model) { [weak self] in
+            UserDefaults.standard.set(true, forKey: "guidedSetupCompleted")
+            self?.setupWindow?.close()
+            self?.reopen()
+        }
+        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+        window.styleMask = [.titled, .closable]
+        window.title = "Set Up Nightr"
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        setupWindow = window
+        window.center()
+        front(window)
+    }
     @objc private func showSettings(_ sender: Any?) { openSettings() }
 
     private func openSettings(route: GUISettingsRoute = .general) {
@@ -102,7 +130,10 @@ import NightrCore
         window.makeKeyAndOrderFront(nil)
     }
 
-    func windowWillClose(_ notification: Notification) { settingsWindow = nil }
+    func windowWillClose(_ notification: Notification) {
+        if notification.object as? NSWindow === setupWindow { setupWindow = nil }
+        else { settingsWindow = nil }
+    }
 
     @objc private func stopAndQuit(_ sender: Any?) { model.quit() }
 
@@ -111,6 +142,7 @@ import NightrCore
         let appItem = main.addItem(withTitle: "Nightr", action: nil, keyEquivalent: "")
         let appMenu = NSMenu(title: "Nightr")
         appItem.submenu = appMenu
+        appMenu.addItem(withTitle: "Set Up Nightr…", action: #selector(openSetup), keyEquivalent: "").target = self
         appMenu.addItem(withTitle: "Settings…", action: #selector(showSettings(_:)), keyEquivalent: ",").target = self
         appMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         appMenu.addItem(.separator())
@@ -173,13 +205,12 @@ import NightrCore
 
 private struct PopoverHost: View {
     @ObservedObject var model: AppModel
+    let setup: () -> Void
     let settings: () -> Void
 
     var body: some View {
         NightrPopover(status: model.status, error: model.error, helperStatus: model.helperStatus, setupError: model.setupError, command: { model.command($0) },
-                      settings: settings, setup: {
-                          model.setupHelper()
-                      }, quit: { model.quit() }, wifiSettings: { DesktopSetup.systemWiFi() })
+                      settings: settings, setup: setup, quit: { model.quit() }, wifiSettings: { DesktopSetup.systemWiFi() })
     }
 }
 #endif

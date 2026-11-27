@@ -101,6 +101,7 @@ struct NightrPopover: View {
             }
             Divider().padding(.vertical, 20)
             HStack {
+                Button("Set Up…", action: setup)
                 Button("Settings…", action: settings).keyboardShortcut(",")
                 Spacer()
                 Button("Stop and Quit", action: quit).keyboardShortcut("q")
